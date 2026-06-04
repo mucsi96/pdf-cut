@@ -57,6 +57,24 @@ program
   .option('--fuzz <pct>', 'trim color tolerance in percent', (v) => toFloat(v, '--fuzz'), 15)
   .option('--border <px>', 'uniform border added back after trim', (v) => toInt(v, '--border'), 30)
   .option('--background <color>', 'fill/border/trim color', 'white')
+  .option('--no-smart', 'disable the Python AI stage (text deskew + hole-fill)')
+  .option('--no-fill-holes', 'do not detect and inpaint punch holes')
+  .option(
+    '--deskew-limit <deg>',
+    'max skew angle searched by the text-based deskew',
+    (v) => toFloat(v, '--deskew-limit'),
+    8
+  )
+  .option('--hole-min-mm <mm>', 'smallest punch-hole diameter', (v) => toFloat(v, '--hole-min-mm'), 3)
+  .option('--hole-max-mm <mm>', 'largest punch-hole diameter', (v) => toFloat(v, '--hole-max-mm'), 10)
+  .option(
+    '--dark-threshold <n>',
+    'darkness cutoff (0-255) for hole detection',
+    (v) => toInt(v, '--dark-threshold'),
+    80
+  )
+  .option('--python <bin>', 'python interpreter for the AI stage', 'python3')
+  .option('--device <dev>', 'torch device for LaMa inpainting (cpu/cuda)', 'cpu')
   .option('-j, --jobs <n>', 'number of pages to process in parallel', (v) => toInt(v, '--jobs'), 0)
   .option('--keep-temp', 'keep the temporary working directory', false)
   .option('-q, --quiet', 'suppress progress output', false)
@@ -95,6 +113,14 @@ try {
     background: opts.background,
     cleanEdges: opts.cleanEdges,
     edgeFuzz: opts.edgeFuzz,
+    smart: opts.smart,
+    fillHoles: opts.fillHoles,
+    deskewLimit: opts.deskewLimit,
+    holeMinMm: opts.holeMinMm,
+    holeMaxMm: opts.holeMaxMm,
+    darkThreshold: opts.darkThreshold,
+    pythonBin: opts.python,
+    device: opts.device,
     jobs,
     keepTemp: opts.keepTemp,
     log,
