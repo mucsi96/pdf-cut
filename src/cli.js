@@ -46,6 +46,13 @@ program
     (v) => toFloat(v, '--rotate'),
     0
   )
+  .option('--no-clean-edges', 'do not remove dark scanner-bed bars from page edges')
+  .option(
+    '--edge-fuzz <pct>',
+    'tolerance for detecting dark edge bars, in percent',
+    (v) => toFloat(v, '--edge-fuzz'),
+    30
+  )
   .option('--no-trim', 'do not trim surrounding scanner margins')
   .option('--fuzz <pct>', 'trim color tolerance in percent', (v) => toFloat(v, '--fuzz'), 15)
   .option('--border <px>', 'uniform border added back after trim', (v) => toInt(v, '--border'), 30)
@@ -86,6 +93,8 @@ try {
     fuzz: opts.fuzz,
     border: opts.border,
     background: opts.background,
+    cleanEdges: opts.cleanEdges,
+    edgeFuzz: opts.edgeFuzz,
     jobs,
     keepTemp: opts.keepTemp,
     log,

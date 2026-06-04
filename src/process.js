@@ -81,12 +81,28 @@ async function splitSheet(magick, sheet, outDir, { rightToLeft }) {
  * automatic deskew, trim of surrounding scanner margin, and a uniform border.
  */
 async function cleanPage(magick, src, dest, opts) {
-  const { deskew, deskewThreshold, rotate, trim, fuzz, border, background } = opts;
+  const { deskew, deskewThreshold, rotate, trim, fuzz, border, background, cleanEdges, edgeFuzz } =
+    opts;
 
   const args = [src, '-background', background];
 
   if (rotate) {
     args.push('-rotate', String(rotate));
+  }
+  if (cleanEdges) {
+    // Remove the dark scanner-bed bars BEFORE deskew by flood-filling inward
+    // from each of the four corners, turning border-connected dark regions into
+    // the page background. Doing this first matters twice over: the black frame
+    // would otherwise (a) bias ImageMagick's deskew, which weighs every dark
+    // pixel, so the rotation never gets corrected, and (b) survive the white
+    // trim as a skewed frame inside the margin. flip/flop brings each corner to
+    // (0,0) in turn; the four transforms compose back to the original orientation.
+    args.push('-fuzz', `${edgeFuzz}%`, '-fill', background);
+    args.push('-draw', 'color 0,0 floodfill');
+    args.push('-flop', '-draw', 'color 0,0 floodfill');
+    args.push('-flip', '-draw', 'color 0,0 floodfill');
+    args.push('-flop', '-draw', 'color 0,0 floodfill');
+    args.push('-flip');
   }
   if (deskew) {
     // -deskew straightens text-bearing scans; corners are filled with -background.
@@ -155,6 +171,8 @@ export async function processPdf(options) {
     fuzz,
     border,
     background,
+    cleanEdges,
+    edgeFuzz,
     jobs,
     keepTemp,
     log = () => {},
@@ -196,7 +214,9 @@ export async function processPdf(options) {
       rawPages.push(...sheets);
     }
 
-    log(`Cleaning ${rawPages.length} page(s) (deskew=${deskew}, trim=${trim}, jobs=${jobs})...`);
+    log(
+      `Cleaning ${rawPages.length} page(s) (clean-edges=${cleanEdges}, deskew=${deskew}, trim=${trim}, jobs=${jobs})...`
+    );
     const finalPages = await mapPool(rawPages, jobs, async (src, index) => {
       const dest = path.join(finalDir, `page-${String(index + 1).padStart(5, '0')}.png`);
       await cleanPage(magick, src, dest, {
@@ -207,6 +227,8 @@ export async function processPdf(options) {
         fuzz,
         border,
         background,
+        cleanEdges,
+        edgeFuzz,
       });
       return dest;
     });

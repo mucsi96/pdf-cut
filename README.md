@@ -28,9 +28,12 @@ podman**) with no local setup:
 
 1. **Rasterize** every landscape sheet at a chosen DPI.
 2. **Split** each sheet down the middle into a left and a right page.
-3. **Deskew** each page so the text is perfectly horizontal.
-4. **Trim** the surrounding scanner margin and add a clean, uniform border.
-5. **Re-assemble** everything into a new one-page-per-page PDF.
+3. **Clean edges** — remove the dark scanner-bed bars along the page borders
+   (flood-filled from the corners). This happens *before* deskew, because the
+   black frame would otherwise bias the rotation detection and survive trimming.
+4. **Deskew** each page so the text is perfectly horizontal.
+5. **Trim** the surrounding scanner margin and add a clean, uniform border.
+6. **Re-assemble** everything into a new one-page-per-page PDF.
 
 ## Quick start (Docker / podman)
 
@@ -88,6 +91,8 @@ Options:
   --no-deskew               disable automatic deskew/straightening
   --deskew-threshold <pct>  deskew sensitivity in percent (default: 40)
   --rotate <deg>            fixed rotation applied to every page before deskew (default: 0)
+  --no-clean-edges          do not remove dark scanner-bed bars from page edges
+  --edge-fuzz <pct>         tolerance for detecting dark edge bars (default: 30)
   --no-trim                 do not trim surrounding scanner margins
   --fuzz <pct>              trim color tolerance in percent (default: 15)
   --border <px>             uniform border added back after trim (default: 30)
@@ -125,6 +130,11 @@ pdf-cut scan.pdf -o book.pdf --fuzz 25 --border 60
 
 - **`--dpi`** drives quality and file size. 300 is good for text; use 400–600
   for fine detail (slower, larger output).
+- **Edge cleaning** (`--edge-fuzz`) removes the dark scanner-bed bars that frame
+  many scans. It runs before deskew, which also makes the straightening reliable
+  (a black frame otherwise dominates the skew detection). Raise `--edge-fuzz` if
+  bars are dark-grey rather than black; lower it if real content near the border
+  is being eaten. Disable with `--no-clean-edges`.
 - **Deskew** (`--deskew-threshold`) works best on pages with clear horizontal
   text. If straightening is too aggressive or not enough, adjust the threshold
   (lower = more eager). Disable with `--no-deskew`.
