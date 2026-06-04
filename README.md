@@ -13,6 +13,7 @@ podman**) with no local setup:
 | --- | --- |
 | [`pdftoppm`](https://poppler.freedesktop.org/) (poppler-utils) | Rasterize each PDF page to a high-resolution PNG |
 | [ImageMagick](https://imagemagick.org/) (`convert`) | Split each landscape sheet in half, auto-**deskew**, trim margins, add a clean border |
+| [`unpaper`](https://github.com/unpaper/unpaper) | Remove **punch holes**, scan residue, noise and blur from each page |
 | [`img2pdf`](https://gitlab.mister-muffin.de/josch/img2pdf) | Re-assemble the cleaned pages into a PDF **losslessly** |
 
 ## What it does
@@ -31,9 +32,14 @@ podman**) with no local setup:
 3. **Clean edges** — remove the dark scanner-bed bars along the page borders
    (flood-filled from the corners). This happens *before* deskew, because the
    black frame would otherwise bias the rotation detection and survive trimming.
-4. **Deskew** each page so the text is perfectly horizontal.
-5. **Trim** the surrounding scanner margin and add a clean, uniform border.
-6. **Re-assemble** everything into a new one-page-per-page PDF.
+4. **Unpaper** — remove punch holes, scan residue, noise and blur from inside
+   the page. Runs after edge cleaning and before deskew so it sees the page
+   without the dark frame but in its original geometry.
+5. **Deskew** each page so the text is perfectly horizontal.
+6. **Trim** the surrounding scanner margin, optionally sharpen, and add a
+   clean, uniform border.
+7. **Re-assemble** everything into a new one-page-per-page PDF (optionally
+   downsampled to a target print DPI).
 
 ## Quick start (Docker / podman)
 
@@ -93,10 +99,15 @@ Options:
   --rotate <deg>            fixed rotation applied to every page before deskew (default: 0)
   --no-clean-edges          do not remove dark scanner-bed bars from page edges
   --edge-fuzz <pct>         tolerance for detecting dark edge bars (default: 30)
+  --no-unpaper              disable unpaper cleanup (punch holes, scan residue)
+  --unpaper-args <s>        extra arguments forwarded to unpaper (space-separated)
   --no-trim                 do not trim surrounding scanner margins
   --fuzz <pct>              trim color tolerance in percent (default: 15)
+  --sharpen                 apply a gentle unsharp-mask pass to crisp text
+  --sharpen-amount <s>      ImageMagick -unsharp argument (default: 0x1)
   --border <px>             uniform border added back after trim (default: 30)
   --background <color>      fill/border/trim color (default: white)
+  --output-dpi <n>          downsample final pages to this DPI (default: same as --dpi)
   -j, --jobs <n>            number of pages to process in parallel (default: CPU count)
   --keep-temp               keep the temporary working directory
   -q, --quiet               suppress progress output
@@ -112,6 +123,10 @@ pdf-cut scan.pdf -o book.pdf
 
 # Higher quality for fine print
 pdf-cut scan.pdf -o book.pdf --dpi 400
+
+# Print-ready: 600 DPI source, unpaper cleanup, gentle sharpen,
+# downsampled to 300 DPI in the output PDF
+pdf-cut scan.pdf -o book.pdf --dpi 600 --output-dpi 300 --sharpen
 
 # Pages were scanned right-to-left (e.g. manga)
 pdf-cut scan.pdf -o book.pdf --right-to-left
@@ -135,6 +150,18 @@ pdf-cut scan.pdf -o book.pdf --fuzz 25 --border 60
   (a black frame otherwise dominates the skew detection). Raise `--edge-fuzz` if
   bars are dark-grey rather than black; lower it if real content near the border
   is being eaten. Disable with `--no-clean-edges`.
+- **Unpaper** removes punch holes, scan residue, noise and blur from inside the
+  page. It runs after edge cleaning (so the corner bars don't confuse its black
+  filter) and before deskew (so deskew sees the cleanest possible page).
+  Disable with `--no-unpaper`; forward extra flags via
+  `--unpaper-args "--noisefilter-intensity 5 ..."`.
+- **Sharpen** (`--sharpen`) applies a single mild unsharp-mask pass after trim,
+  which crisps text edges without the ringing artifacts heavier sharpening
+  introduces around glyphs. Tune with `--sharpen-amount 0x1.2` etc.
+- **Output DPI** (`--output-dpi`) downsamples the final pages while still
+  rasterizing and cleaning at the high source `--dpi`. For print, scan at
+  600 DPI for processing headroom and emit at 300 DPI to keep the PDF small
+  without losing print quality.
 - **Deskew** (`--deskew-threshold`) works best on pages with clear horizontal
   text. If straightening is too aggressive or not enough, adjust the threshold
   (lower = more eager). Disable with `--no-deskew`.
@@ -151,10 +178,10 @@ If you prefer to run it natively, install the binary dependencies and use Node
 
 ```bash
 # Debian / Ubuntu / WSL
-sudo apt-get install -y poppler-utils imagemagick img2pdf
+sudo apt-get install -y poppler-utils imagemagick unpaper img2pdf
 
 # macOS (Homebrew)
-brew install poppler imagemagick img2pdf
+brew install poppler imagemagick unpaper img2pdf
 
 npm install
 node src/cli.js scan.pdf -o book.pdf
@@ -169,8 +196,11 @@ ImageMagick PDF policy restrictions). Instead:
 
 1. `pdftoppm -png -r <dpi> input.pdf` → one PNG per sheet.
 2. For each sheet, `convert ... -crop 50%x100%` → left/right halves.
-3. For each page, `convert -deskew <t>% -trim -border <n>` → a straight,
-   cleanly-cropped PNG.
+3. For each page, when unpaper is enabled, two `convert` passes wrap an
+   `unpaper` invocation: pass 1 does rotate + edge cleanup, `unpaper`
+   removes punch holes / scan residue, pass 2 does deskew + trim +
+   optional sharpen + border + optional `-resample` to the output DPI.
+   When unpaper is disabled it collapses to a single `convert` pipeline.
 4. `img2pdf` packs the PNGs back into a PDF, preserving image quality and DPI.
 
 ## License

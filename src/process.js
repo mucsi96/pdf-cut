@@ -76,27 +76,16 @@ async function splitSheet(magick, sheet, outDir, { rightToLeft }) {
   return rightToLeft ? [right, left] : [left, right];
 }
 
-/**
- * Clean up a single page image: optional rotation for sideways scans,
- * automatic deskew, trim of surrounding scanner margin, and a uniform border.
- */
-async function cleanPage(magick, src, dest, opts) {
-  const { deskew, deskewThreshold, rotate, trim, fuzz, border, background, cleanEdges, edgeFuzz } =
-    opts;
-
-  const args = [src, '-background', background];
-
+/** ImageMagick ops that should run BEFORE unpaper (or as the first half of the
+ *  single-pass pipeline): the optional fixed rotation and the corner flood-fill
+ *  that strips the dark scanner-bed bars. Cleaning edges first matters even
+ *  without unpaper, because a black frame biases the eventual -deskew. */
+function pushPreOps(args, opts) {
+  const { rotate, cleanEdges, edgeFuzz, background } = opts;
   if (rotate) {
     args.push('-rotate', String(rotate));
   }
   if (cleanEdges) {
-    // Remove the dark scanner-bed bars BEFORE deskew by flood-filling inward
-    // from each of the four corners, turning border-connected dark regions into
-    // the page background. Doing this first matters twice over: the black frame
-    // would otherwise (a) bias ImageMagick's deskew, which weighs every dark
-    // pixel, so the rotation never gets corrected, and (b) survive the white
-    // trim as a skewed frame inside the margin. flip/flop brings each corner to
-    // (0,0) in turn; the four transforms compose back to the original orientation.
     args.push('-fuzz', `${edgeFuzz}%`, '-fill', background);
     args.push('-draw', 'color 0,0 floodfill');
     args.push('-flop', '-draw', 'color 0,0 floodfill');
@@ -104,21 +93,107 @@ async function cleanPage(magick, src, dest, opts) {
     args.push('-flop', '-draw', 'color 0,0 floodfill');
     args.push('-flip');
   }
+}
+
+/** ImageMagick ops that run AFTER unpaper (or as the second half of the
+ *  single-pass pipeline): deskew, trim, optional unsharp pass for crisper
+ *  print output, uniform border, and an optional resample to a lower output
+ *  DPI for print. */
+function pushPostOps(args, opts) {
+  const {
+    deskew,
+    deskewThreshold,
+    trim,
+    fuzz,
+    border,
+    background,
+    sharpen,
+    sharpenAmount,
+    dpi,
+    outputDpi,
+  } = opts;
   if (deskew) {
-    // -deskew straightens text-bearing scans; corners are filled with -background.
     args.push('-deskew', `${deskewThreshold}%`);
   }
   if (trim) {
     args.push('-fuzz', `${fuzz}%`, '-trim', '+repage');
   }
+  if (sharpen) {
+    args.push('-unsharp', sharpenAmount);
+  }
   if (border > 0) {
     args.push('-bordercolor', background, '-border', String(border), '+repage');
   }
-  // Ensure clean, alpha-free output that img2pdf packs without transcoding surprises.
-  args.push('-alpha', 'remove', '-alpha', 'off', dest);
+  if (outputDpi > 0 && outputDpi !== dpi) {
+    // -resample scales the pixel grid and updates the PNG density chunk;
+    // img2pdf reads that density to set the page size, so the output PDF
+    // ends up at the requested print resolution.
+    args.push('-units', 'PixelsPerInch', '-density', String(dpi), '-resample', String(outputDpi));
+  }
+}
 
-  const { cmd, args: full } = withBase(magick.convert, args);
-  await run(cmd, full);
+/** Args passed to unpaper. Unpaper handles punch-hole removal, scan residue,
+ *  noise and blur cleanup; we intentionally leave deskew/border/mask scanning
+ *  to ImageMagick so the existing tuning knobs keep working. */
+function buildUnpaperArgs(src, dest, opts) {
+  const { dpi, unpaperArgs: extra } = opts;
+  const args = [
+    '--layout', 'single',
+    '--dpi', String(dpi),
+    '--no-deskew',
+    '--no-mask-scan',
+    '--no-border-scan',
+    '--overwrite',
+  ];
+  if (extra) {
+    args.push(...extra.split(/\s+/).filter(Boolean));
+  }
+  args.push(src, dest);
+  return args;
+}
+
+/**
+ * Clean up a single page image. With unpaper enabled the work is split across
+ * two ImageMagick passes wrapping an unpaper invocation, so unpaper sees the
+ * page after the scanner-bed bars are gone but before deskew has changed the
+ * geometry. With unpaper off this collapses to a single ImageMagick pipeline
+ * that matches the original behaviour.
+ */
+async function cleanPage(magick, src, dest, opts) {
+  const { background } = opts;
+
+  if (!opts.unpaper) {
+    const args = [src, '-background', background];
+    pushPreOps(args, opts);
+    pushPostOps(args, opts);
+    args.push('-alpha', 'remove', '-alpha', 'off', dest);
+    const { cmd, args: full } = withBase(magick.convert, args);
+    await run(cmd, full);
+    return;
+  }
+
+  const stage1 = `${dest}.s1.png`;
+  const stage2 = `${dest}.s2.png`;
+  try {
+    const preArgs = [src, '-background', background];
+    pushPreOps(preArgs, opts);
+    // unpaper 7 rejects 16-bit input ("unsupported pixel format"); force 8-bit
+    // so any earlier IM op that promoted depth doesn't trip it.
+    preArgs.push('-depth', '8', '-alpha', 'remove', '-alpha', 'off', stage1);
+    const { cmd: c1, args: a1 } = withBase(magick.convert, preArgs);
+    await run(c1, a1);
+
+    await run('unpaper', buildUnpaperArgs(stage1, stage2, opts));
+
+    const postArgs = [stage2, '-background', background];
+    pushPostOps(postArgs, opts);
+    postArgs.push('-alpha', 'remove', '-alpha', 'off', dest);
+    const { cmd: c2, args: a2 } = withBase(magick.convert, postArgs);
+    await run(c2, a2);
+  } finally {
+    await rm(stage1, { force: true });
+    await rm(stage2, { force: true });
+  }
 }
 
 /** Simple bounded-concurrency map. */
@@ -153,6 +228,13 @@ async function mapPool(items, limit, worker) {
  * @param {number} options.fuzz         Trim color tolerance (percent).
  * @param {number} options.border       Uniform border to add back (pixels).
  * @param {string} options.background   Fill/border/trim color.
+ * @param {boolean} options.cleanEdges  Strip dark scanner-bed bars from corners.
+ * @param {number} options.edgeFuzz     Tolerance for edge-bar detection (percent).
+ * @param {boolean} options.unpaper     Run unpaper to remove punch holes / scan residue.
+ * @param {string} options.unpaperArgs  Extra space-separated args forwarded to unpaper.
+ * @param {boolean} options.sharpen     Apply a gentle unsharp pass for crisper text.
+ * @param {string} options.sharpenAmount  ImageMagick -unsharp argument (e.g. "0x1").
+ * @param {number} options.outputDpi    Downsample final pages to this DPI (0 = same as dpi).
  * @param {number} options.jobs         Concurrency.
  * @param {boolean} options.keepTemp    Keep the temp working directory.
  * @param {(msg: string) => void} [options.log]
@@ -173,6 +255,11 @@ export async function processPdf(options) {
     background,
     cleanEdges,
     edgeFuzz,
+    unpaper,
+    unpaperArgs: unpaperExtraArgs,
+    sharpen,
+    sharpenAmount,
+    outputDpi,
     jobs,
     keepTemp,
     log = () => {},
@@ -186,7 +273,9 @@ export async function processPdf(options) {
     throw new Error(`Input is not a file: ${input}`);
   }
 
-  await ensureTools(['pdftoppm', 'img2pdf']);
+  const required = ['pdftoppm', 'img2pdf'];
+  if (unpaper) required.push('unpaper');
+  await ensureTools(required);
   const magick = await detectImageMagick();
 
   const workDir = await mkdtemp(path.join(tmpdir(), 'pdf-cut-'));
@@ -215,7 +304,8 @@ export async function processPdf(options) {
     }
 
     log(
-      `Cleaning ${rawPages.length} page(s) (clean-edges=${cleanEdges}, deskew=${deskew}, trim=${trim}, jobs=${jobs})...`
+      `Cleaning ${rawPages.length} page(s) (clean-edges=${cleanEdges}, unpaper=${unpaper}, ` +
+        `deskew=${deskew}, trim=${trim}, sharpen=${sharpen}, jobs=${jobs})...`
     );
     const finalPages = await mapPool(rawPages, jobs, async (src, index) => {
       const dest = path.join(finalDir, `page-${String(index + 1).padStart(5, '0')}.png`);
@@ -229,6 +319,12 @@ export async function processPdf(options) {
         background,
         cleanEdges,
         edgeFuzz,
+        unpaper,
+        unpaperArgs: unpaperExtraArgs,
+        sharpen,
+        sharpenAmount,
+        dpi,
+        outputDpi,
       });
       return dest;
     });

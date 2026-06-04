@@ -53,10 +53,28 @@ program
     (v) => toFloat(v, '--edge-fuzz'),
     30
   )
+  .option('--no-unpaper', 'disable unpaper cleanup (punch holes, scan residue, despeckle)')
+  .option(
+    '--unpaper-args <s>',
+    'extra arguments forwarded to unpaper (space-separated)',
+    ''
+  )
   .option('--no-trim', 'do not trim surrounding scanner margins')
   .option('--fuzz <pct>', 'trim color tolerance in percent', (v) => toFloat(v, '--fuzz'), 15)
+  .option('--sharpen', 'apply a gentle unsharp-mask pass to crisp text', false)
+  .option(
+    '--sharpen-amount <s>',
+    'ImageMagick -unsharp argument when --sharpen is set',
+    '0x1'
+  )
   .option('--border <px>', 'uniform border added back after trim', (v) => toInt(v, '--border'), 30)
   .option('--background <color>', 'fill/border/trim color', 'white')
+  .option(
+    '--output-dpi <n>',
+    'downsample final pages to this DPI (default: same as --dpi)',
+    (v) => toInt(v, '--output-dpi'),
+    0
+  )
   .option('-j, --jobs <n>', 'number of pages to process in parallel', (v) => toInt(v, '--jobs'), 0)
   .option('--keep-temp', 'keep the temporary working directory', false)
   .option('-q, --quiet', 'suppress progress output', false)
@@ -95,6 +113,11 @@ try {
     background: opts.background,
     cleanEdges: opts.cleanEdges,
     edgeFuzz: opts.edgeFuzz,
+    unpaper: opts.unpaper,
+    unpaperArgs: opts.unpaperArgs,
+    sharpen: opts.sharpen,
+    sharpenAmount: opts.sharpenAmount,
+    outputDpi: opts.outputDpi,
     jobs,
     keepTemp: opts.keepTemp,
     log,

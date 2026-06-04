@@ -3,7 +3,8 @@
 # The image bundles the Node CLI together with the proven binary toolchain it
 # orchestrates:
 #   - poppler-utils  → pdftoppm (PDF → high-res PNG rasterization)
-#   - imagemagick    → convert/identify (split, deskew, trim, border)
+#   - imagemagick    → convert/identify (split, deskew, trim, border, resample)
+#   - unpaper        → punch-hole / scan-residue cleanup
 #   - img2pdf        → lossless PNG → PDF assembly
 FROM node:20-bookworm-slim
 
@@ -11,6 +12,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         poppler-utils \
         imagemagick \
+        unpaper \
         img2pdf \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*

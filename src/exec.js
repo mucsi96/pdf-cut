@@ -78,7 +78,7 @@ export async function ensureTools(tools) {
     throw new Error(
       `Missing required tool(s): ${missing.join(', ')}.\n` +
         'These are provided by the Docker image. If running outside Docker, install ' +
-        'poppler-utils (pdftoppm), imagemagick (convert/identify) and img2pdf.'
+        'poppler-utils (pdftoppm), imagemagick (convert/identify), img2pdf, and unpaper.'
     );
   }
 }
