@@ -183,10 +183,11 @@ pdf-cut scan.pdf -o book.pdf --no-smart
   ImageMagick corner flood-fill, tuned by `--edge-fuzz`, is used instead.)
   It assumes text pages — for pages with full-bleed illustrations in the margins,
   disable it.
-- **Uniform page size.** Output pages are never cropped and are all padded to one
-  common canvas, so every page prints at the same size and font scale. `--trim`
-  can crop the margins if you really want it, but that is the one option that
-  makes pages differ in size.
+- **Uniform page size.** Output pages are never cropped; they are all fitted to
+  the *dominant* page size, so every page prints at the same size and font scale.
+  An odd-sized sheet (a cover or foldout) is scaled down to fit rather than
+  forcing every other page to grow. `--trim` can crop the margins if you really
+  want it, but that is the one option that makes pages differ in size.
 - **Deskew** (`--deskew-threshold`) works best on pages with clear horizontal
   text. If straightening is too aggressive or not enough, adjust the threshold
   (lower = more eager). Disable with `--no-deskew`.
@@ -250,9 +251,11 @@ ImageMagick PDF policy restrictions). Instead:
      core from any overlapping text) and inpaint a small crop around each with
      LaMa.
    When Python is unavailable, `convert` does a corner flood-fill + `-deskew`.
-4. **Normalize** (`convert`): pad every page (optionally `-border`) with
-   `-gravity center -extent WxH` to the batch-maximum size — pure padding, no
-   crop — so all pages are identical. `-trim` is opt-in.
+4. **Normalize** (`convert`): fit every page onto the *dominant* page size
+   (`-resize WxH>` shrinks only the rare oversized page, then `-gravity center
+   -extent` pads) so all pages are identical without ever cropping. Using the
+   most-common size — not the maximum — keeps an odd sheet (a cover/foldout)
+   from inflating every page. `-border` and `-trim` are opt-in.
 5. `img2pdf` packs the PNGs back into a PDF, preserving image quality and DPI.
 
 ## License
