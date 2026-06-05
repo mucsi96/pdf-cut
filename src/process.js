@@ -81,13 +81,11 @@ async function splitSheet(magick, sheet, outDir, { rightToLeft }) {
 }
 
 /**
- * Stage 1 — rotate sideways scans and remove the dark scanner-bed bars.
- *
- * The bars are stripped BEFORE any deskew because the black frame would
- * otherwise (a) bias deskew, which weighs every dark pixel, so the rotation
- * never gets corrected, and (b) survive the white trim as a skewed frame inside
- * the margin. flip/flop brings each corner to (0,0) in turn and the four
- * transforms compose back to the original orientation.
+ * Stage 1 — rotate sideways scans and (fallback only) remove dark scanner-bed
+ * bars by flood-filling inward from each corner. When the Python stage is
+ * available it does detection-based residue removal instead, so this flood-fill
+ * runs only when Python is missing. flip/flop brings each corner to (0,0) in
+ * turn and the four transforms compose back to the original orientation.
  */
 async function imEdgeClean(magick, src, dest, { rotate, cleanEdges, edgeFuzz, background }) {
   const args = [src, '-background', background];
@@ -118,8 +116,21 @@ async function imDeskew(magick, src, dest, { deskew, deskewThreshold, background
   await run(cmd, full);
 }
 
-/** Stage 3 — trim the scanner margin, add a clean border, flatten alpha. */
-async function imFinish(magick, src, dest, { trim, fuzz, border, background }) {
+/** Read a PNG's pixel dimensions via ImageMagick `identify`. */
+async function getSize(magick, file) {
+  const { cmd, args } = withBase(magick.identify, ['-format', '%w %h', file]);
+  const { stdout } = await run(cmd, args);
+  const [w, h] = stdout.trim().split(/\s+/).map(Number);
+  return { w, h };
+}
+
+/**
+ * Stage 3 — optional border, then pad every page onto one common canvas so all
+ * output pages share identical dimensions (uniform print/font size). We never
+ * crop: `-extent` only pads here because the target is the batch maximum. Trim
+ * is opt-in and, when used, is immediately re-padded back to the common size.
+ */
+async function imFinish(magick, src, dest, { trim, fuzz, border, background, targetW, targetH }) {
   const args = [src, '-background', background];
   if (trim) {
     args.push('-fuzz', `${fuzz}%`, '-trim', '+repage');
@@ -127,6 +138,7 @@ async function imFinish(magick, src, dest, { trim, fuzz, border, background }) {
   if (border > 0) {
     args.push('-bordercolor', background, '-border', String(border), '+repage');
   }
+  args.push('-gravity', 'center', '-extent', `${targetW}x${targetH}`, '+repage');
   // Ensure clean, alpha-free output that img2pdf packs without transcoding surprises.
   args.push('-alpha', 'remove', '-alpha', 'off', dest);
   const { cmd, args: full } = withBase(magick.convert, args);
@@ -146,18 +158,20 @@ function colorToRgb(color) {
  * Probe whether the Python "smart" stage (robust deskew + LaMa hole-fill) and
  * its dependencies are importable, so we can transparently fall back otherwise.
  */
-async function detectPython(pythonBin, fillHoles) {
-  if (!existsSync(PY_SCRIPT)) return false;
-  try {
-    const { stdout } = await run(pythonBin, [
-      PY_SCRIPT,
-      '--check',
-      fillHoles ? '--fill-holes' : '--no-fill-holes',
-    ]);
-    return stdout.trim() === 'ok';
-  } catch {
-    return false;
-  }
+async function detectPython(pythonBin) {
+  const check = async (flag) => {
+    try {
+      const { stdout } = await run(pythonBin, [PY_SCRIPT, '--check', flag]);
+      return stdout.trim() === 'ok';
+    } catch {
+      return false;
+    }
+  };
+  if (!existsSync(PY_SCRIPT)) return { available: false, canFillHoles: false };
+  // OpenCV alone covers residue removal + deskew; torch/LaMa adds hole-filling.
+  const available = await check('--no-fill-holes');
+  const canFillHoles = available ? await check('--fill-holes') : false;
+  return { available, canFillHoles };
 }
 
 /**
@@ -172,12 +186,14 @@ async function runPythonStage(pythonBin, pairs, params, workDir) {
     PY_SCRIPT,
     '--manifest', manifestPath,
     '--dpi', String(params.dpi),
+    params.cleanEdges ? '--clean-edges' : '--no-clean-edges',
     params.deskew ? '--deskew' : '--no-deskew',
     params.fillHoles ? '--fill-holes' : '--no-fill-holes',
     '--deskew-limit', String(params.deskewLimit),
     '--hole-min-mm', String(params.holeMinMm),
     '--hole-max-mm', String(params.holeMaxMm),
     '--dark-threshold', String(params.darkThreshold),
+    '--residue-threshold', String(params.residueThreshold),
     '--device', params.device,
     '--background', colorToRgb(params.background),
   ];
@@ -220,9 +236,9 @@ async function mapPool(items, limit, worker) {
  * @param {boolean} options.deskew      Auto-straighten each page.
  * @param {number} options.deskewThreshold  Deskew sensitivity (percent).
  * @param {number} options.rotate       Fixed rotation applied before deskew.
- * @param {boolean} options.trim        Trim scanner margins.
+ * @param {boolean} options.trim        Crop scanner margins (off by default; breaks uniform size).
  * @param {number} options.fuzz         Trim color tolerance (percent).
- * @param {number} options.border       Uniform border to add back (pixels).
+ * @param {number} options.border       Uniform white border added to every page (pixels).
  * @param {string} options.background   Fill/border/trim color.
  * @param {boolean} options.cleanEdges  Remove dark scanner-bed bars.
  * @param {number} options.edgeFuzz     Edge-bar detection tolerance (percent).
@@ -232,6 +248,7 @@ async function mapPool(items, limit, worker) {
  * @param {number} options.holeMinMm    Smallest punch-hole diameter (mm).
  * @param {number} options.holeMaxMm    Largest punch-hole diameter (mm).
  * @param {number} options.darkThreshold Darkness cutoff for hole detection.
+ * @param {number} options.residueThreshold Darkness cutoff for residue detection.
  * @param {string} options.pythonBin    Python interpreter to use.
  * @param {string} options.device       Torch device for LaMa (cpu/cuda).
  * @param {number} options.jobs         Concurrency.
@@ -260,6 +277,7 @@ export async function processPdf(options) {
     holeMinMm,
     holeMaxMm,
     darkThreshold,
+    residueThreshold,
     pythonBin,
     device,
     jobs,
@@ -278,20 +296,30 @@ export async function processPdf(options) {
   await ensureTools(['pdftoppm', 'img2pdf']);
   const magick = await detectImageMagick();
 
-  // Decide whether the AI/Python stage (robust deskew + LaMa hole-fill) is usable.
+  // Decide whether the Python stage is usable. OpenCV alone covers detection-
+  // based residue removal + text deskew; torch/LaMa adds punch-hole inpainting.
   let usePython = false;
-  if (smart && (deskew || fillHoles)) {
-    usePython = await detectPython(pythonBin, fillHoles);
+  let effFillHoles = false;
+  if (smart && (cleanEdges || deskew || fillHoles)) {
+    const cap = await detectPython(pythonBin);
+    usePython = cap.available;
+    effFillHoles = fillHoles && cap.canFillHoles;
     if (!usePython) {
       log(
-        fillHoles
-          ? '  Note: Python AI stage unavailable — falling back to ImageMagick deskew; ' +
-              'punch holes will NOT be filled. (Use the Docker image, or install ' +
-              'python3 + opencv + torch + simple-lama-inpainting.)'
-          : '  Note: Python deskew stage unavailable — falling back to ImageMagick deskew.'
+        '  Note: Python stage unavailable — falling back to ImageMagick edge flood-fill ' +
+          '+ deskew; detection-based residue removal and punch-hole filling are skipped. ' +
+          '(Use the Docker image, or install python3 + opencv [+ torch + simple-lama-inpainting].)'
+      );
+    } else if (fillHoles && !cap.canFillHoles) {
+      log(
+        '  Note: OpenCV present but torch/LaMa missing — residue removal and deskew are ' +
+          'active, but punch holes will NOT be filled.'
       );
     }
   }
+  // The Python stage handles residue detection in place; only fall back to the
+  // ImageMagick corner flood-fill when Python is unavailable.
+  const imFloodFill = cleanEdges && !usePython;
 
   const workDir = await mkdtemp(path.join(tmpdir(), 'pdf-cut-'));
   const halvesDir = path.join(workDir, 'halves');
@@ -324,19 +352,21 @@ export async function processPdf(options) {
       rawPages.push(...sheets);
     }
 
-    // Stage 1 — rotate + remove dark scanner-bed edges (parallel).
-    log(`Cleaning edges of ${rawPages.length} page(s) (clean-edges=${cleanEdges}, jobs=${jobs})...`);
+    // Stage 1 — rotate (+ ImageMagick edge flood-fill only as a fallback).
+    log(`Preparing ${rawPages.length} page(s) (rotate=${rotate || 0}, jobs=${jobs})...`);
     const edged = await mapPool(rawPages, jobs, async (src, i) => {
       const dest = path.join(edgesDir, `page-${pad(i)}.png`);
-      await imEdgeClean(magick, src, dest, { rotate, cleanEdges, edgeFuzz, background });
+      await imEdgeClean(magick, src, dest, { rotate, cleanEdges: imFloodFill, edgeFuzz, background });
       return dest;
     });
 
-    // Stage 2 — straighten and fill punch holes.
+    // Stage 2 — detection-based residue removal, deskew, and hole-fill (all in
+    // place, so page dimensions are preserved).
     let processed;
     if (usePython) {
       log(
-        `Smart stage: text-based deskew=${deskew}, AI hole-fill=${fillHoles} (this can take a moment)...`
+        `Smart stage: residue-clean=${cleanEdges}, text-deskew=${deskew}, ` +
+          `AI hole-fill=${effFillHoles} (this can take a moment)...`
       );
       const pairs = edged.map((src, i) => ({
         input: src,
@@ -345,7 +375,10 @@ export async function processPdf(options) {
       await runPythonStage(
         pythonBin,
         pairs,
-        { dpi, deskew, fillHoles, deskewLimit, holeMinMm, holeMaxMm, darkThreshold, device, background },
+        {
+          dpi, cleanEdges, deskew, fillHoles: effFillHoles, deskewLimit,
+          holeMinMm, holeMaxMm, darkThreshold, residueThreshold, device, background,
+        },
         workDir
       );
       processed = pairs.map((p) => p.output);
@@ -358,11 +391,18 @@ export async function processPdf(options) {
       });
     }
 
-    // Stage 3 — trim margins + add border (parallel).
-    log(`Trimming and bordering ${processed.length} page(s) (trim=${trim})...`);
+    // Stage 3 — pad every page to a single common canvas so all pages share the
+    // exact same size (uniform print/font size). No cropping ever occurs.
+    const sizes = await mapPool(processed, jobs, (src) => getSize(magick, src));
+    const targetW = Math.max(...sizes.map((s) => s.w)) + 2 * border;
+    const targetH = Math.max(...sizes.map((s) => s.h)) + 2 * border;
+    log(
+      `Normalizing ${processed.length} page(s) to ${targetW}x${targetH}px ` +
+        `(trim=${trim}, border=${border})...`
+    );
     const finalPages = await mapPool(processed, jobs, async (src, i) => {
       const dest = path.join(finalDir, `page-${pad(i)}.png`);
-      await imFinish(magick, src, dest, { trim, fuzz, border, background });
+      await imFinish(magick, src, dest, { trim, fuzz, border, background, targetW, targetH });
       return dest;
     });
 

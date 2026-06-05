@@ -46,19 +46,35 @@ program
     (v) => toFloat(v, '--rotate'),
     0
   )
-  .option('--no-clean-edges', 'do not remove dark scanner-bed bars from page edges')
+  .option('--no-clean-edges', 'do not remove scanner-bed residue / edge bars')
   .option(
     '--edge-fuzz <pct>',
-    'tolerance for detecting dark edge bars, in percent',
+    'tolerance for the ImageMagick edge flood-fill fallback, in percent',
     (v) => toFloat(v, '--edge-fuzz'),
     30
   )
-  .option('--no-trim', 'do not trim surrounding scanner margins')
+  .option(
+    '--trim',
+    'crop surrounding scanner margins (off by default — cropping makes pages ' +
+      'different sizes; pages are otherwise kept at their original size)',
+    false
+  )
   .option('--fuzz <pct>', 'trim color tolerance in percent', (v) => toFloat(v, '--fuzz'), 15)
-  .option('--border <px>', 'uniform border added back after trim', (v) => toInt(v, '--border'), 30)
-  .option('--background <color>', 'fill/border/trim color', 'white')
-  .option('--no-smart', 'disable the Python AI stage (text deskew + hole-fill)')
+  .option(
+    '--border <px>',
+    'uniform white border added to every page (0 = keep original size)',
+    (v) => toInt(v, '--border'),
+    0
+  )
+  .option('--background <color>', 'fill/border color', 'white')
+  .option('--no-smart', 'disable the Python stage (residue removal, text deskew, hole-fill)')
   .option('--no-fill-holes', 'do not detect and inpaint punch holes')
+  .option(
+    '--residue-threshold <n>',
+    'darkness cutoff (0-255) for scanner-residue detection',
+    (v) => toInt(v, '--residue-threshold'),
+    110
+  )
   .option(
     '--deskew-limit <deg>',
     'max skew angle searched by the text-based deskew',
@@ -119,6 +135,7 @@ try {
     holeMinMm: opts.holeMinMm,
     holeMaxMm: opts.holeMaxMm,
     darkThreshold: opts.darkThreshold,
+    residueThreshold: opts.residueThreshold,
     pythonBin: opts.python,
     device: opts.device,
     jobs,

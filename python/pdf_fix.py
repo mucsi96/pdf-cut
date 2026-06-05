@@ -139,6 +139,112 @@ def detect_holes(gray, args):
     return mask, boxes
 
 
+def content_box(text_mask, glyph_min_area, margin_pad):
+    """Bounding rectangle of the genuine text on the page.
+
+    Built from connected components large enough to be glyphs (specks ignored),
+    so the running header, body and page number are all enclosed — and anything
+    beyond it is margin that contains no text."""
+    import cv2
+
+    h, w = text_mask.shape
+    n, _, stats, _ = cv2.connectedComponentsWithStats(text_mask)
+    x0, y0, x1, y1 = w, h, 0, 0
+    found = False
+    for i in range(1, n):
+        x, y, bw, bh, area = stats[i]
+        if area < glyph_min_area:
+            continue
+        if bw > 0.6 * w and bh > 0.6 * h:  # page-spanning blob, not a glyph
+            continue
+        found = True
+        x0, y0 = min(x0, x), min(y0, y)
+        x1, y1 = max(x1, x + bw), max(y1, y + bh)
+    if not found:
+        return None
+    x0 = max(0, x0 - margin_pad)
+    y0 = max(0, y0 - margin_pad)
+    x1 = min(w, x1 + margin_pad)
+    y1 = min(h, y1 + margin_pad)
+    return (x0, y0, x1, y1)
+
+
+def _mostly_outside(rect, box):
+    x, y, bw, bh = rect
+    bx0, by0, bx1, by1 = box
+    ix0, iy0 = max(x, bx0), max(y, by0)
+    ix1, iy1 = min(x + bw, bx1), min(y + bh, by1)
+    inter = max(0, ix1 - ix0) * max(0, iy1 - iy0)
+    return inter < 0.5 * (bw * bh)
+
+
+def detect_residue(gray, args):
+    """Return a mask (uint8, 255 = paint white) of scanner residue: the dark
+    edge bars/blobs and anything sitting in the text-free margins.
+
+    Two complementary cues, mirroring the punch-hole detector's "isolate a
+    region, then act on it" idea — but here we erase instead of inpaint, and we
+    never crop, so the page keeps its exact dimensions:
+
+      1. Solid masses — a morphological opening keeps only thick solid blobs
+         (thin text strokes and rules vanish). A blob is residue when it is
+         large, elongated (a bar), or lies outside the text region. Compact
+         in-text blobs are left for the punch-hole/LaMa stage.
+      2. Empty margins — everything outside the text bounding box. By
+         definition it contains no text, so it is filled white.
+    """
+    import cv2
+    import numpy as np
+
+    h, w = gray.shape
+    px = args.dpi / 25.4
+    dark = cv2.threshold(gray, args.residue_threshold, 255, cv2.THRESH_BINARY_INV)[1]
+
+    radius = max(2, int(args.residue_thick_mm * px / 2))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
+    opened = cv2.morphologyEx(dark, cv2.MORPH_OPEN, kernel)
+
+    min_area = (args.residue_min_mm * px) ** 2
+    big_area = (args.residue_big_mm * px) ** 2
+
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(opened)
+    text = dark.copy()
+    candidates = []
+    for i in range(1, n):
+        x, y, bw, bh, area = stats[i]
+        if area < min_area:
+            continue
+        candidates.append((i, x, y, bw, bh, area))
+        text[labels == i] = 0  # remove solid masses so the text box is clean
+
+    glyph_min_area = (args.glyph_min_mm * px) ** 2
+    margin_pad = int(args.margin_pad_mm * px)
+    box = content_box(text, glyph_min_area, margin_pad)
+
+    mask = np.zeros((h, w), np.uint8)
+    for (i, x, y, bw, bh, area) in candidates:
+        aspect = max(bw, bh) / max(1, min(bw, bh))
+        outside = box is None or _mostly_outside((x, y, bw, bh), box)
+        if area >= big_area or aspect >= args.residue_aspect or outside:
+            mask[labels == i] = 255
+
+    # The opening shrank each mass; regrow within the original dark pixels and
+    # add a small safety margin so no dark fringe is left behind.
+    mask = cv2.bitwise_and(cv2.dilate(mask, kernel), dark)
+    pad = max(1, int(args.residue_pad_mm * px))
+    mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * pad + 1, 2 * pad + 1)))
+
+    # Empty margins: blank everything outside the text box (size unchanged).
+    if box is not None:
+        x0, y0, x1, y1 = box
+        if (x1 - x0) > args.box_min_frac * w and (y1 - y0) > args.box_min_frac * h:
+            mask[:y0, :] = 255
+            mask[y1:, :] = 255
+            mask[:, :x0] = 255
+            mask[:, x1:] = 255
+    return mask
+
+
 def inpaint_regions(lama, img_rgb, mask, boxes, context):
     """Run LaMa on a small crop around each hole and paste the result back,
     keeping inference fast and memory-light regardless of page resolution."""
@@ -184,6 +290,17 @@ def main():
     parser.add_argument("--hole-dilate", type=float, default=0.25)
     parser.add_argument("--dark-threshold", type=int, default=80)
     parser.add_argument("--context", type=int, default=96)
+    parser.add_argument("--clean-edges", dest="clean_edges", action="store_true", default=True)
+    parser.add_argument("--no-clean-edges", dest="clean_edges", action="store_false")
+    parser.add_argument("--residue-threshold", type=int, default=110)
+    parser.add_argument("--residue-thick-mm", type=float, default=1.5)
+    parser.add_argument("--residue-min-mm", type=float, default=4.0)
+    parser.add_argument("--residue-big-mm", type=float, default=12.0)
+    parser.add_argument("--residue-aspect", type=float, default=3.0)
+    parser.add_argument("--residue-pad-mm", type=float, default=1.0)
+    parser.add_argument("--glyph-min-mm", type=float, default=0.6)
+    parser.add_argument("--margin-pad-mm", type=float, default=3.0)
+    parser.add_argument("--box-min-frac", type=float, default=0.3)
     parser.add_argument("--background", default="255,255,255")
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
@@ -215,6 +332,17 @@ def main():
         if img is None:
             raise SystemExit(f"could not read image: {item['input']}")
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        white = (border[2], border[1], border[0])
+
+        # Erase scanner residue first (in place — the page size never changes),
+        # so the bars cannot bias deskew or linger in the margins.
+        if args.clean_edges:
+            res_mask = detect_residue(gray, args)
+            painted = int((res_mask > 0).sum())
+            if painted:
+                img[res_mask > 0] = white
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                eprint(f"  [{idx}/{len(items)}] cleaned residue/margins")
 
         if args.deskew:
             angle = estimate_skew(gray, args.deskew_limit, args.deskew_step)
