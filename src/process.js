@@ -116,58 +116,19 @@ async function imDeskew(magick, src, dest, { deskew, deskewThreshold, background
   await run(cmd, full);
 }
 
-/** Read a PNG's pixel dimensions via ImageMagick `identify`. */
-async function getSize(magick, file) {
-  const { cmd, args } = withBase(magick.identify, ['-format', '%w %h', file]);
-  const { stdout } = await run(cmd, args);
-  const [w, h] = stdout.trim().split(/\s+/).map(Number);
-  return { w, h };
-}
-
 /**
- * Pick the common page size to normalize to: the *most frequent* (mode) size,
- * NOT the maximum. Using the max would let a single odd sheet (a portrait cover,
- * a foldout) inflate every page's canvas — which shows up as "all pages became
- * taller, with white padding". The body pages dominate the count, so the mode is
- * the real page size; ties are broken toward the smaller area to avoid inflation.
+ * Stage 3 — final touch-ups only. By default this changes nothing about the
+ * page geometry: each page keeps the exact pixel size it had after the split.
+ * Trim and border are strictly opt-in (and do change size when used).
  */
-function commonSize(sizes) {
-  const counts = new Map();
-  for (const { w, h } of sizes) {
-    const key = `${w}x${h}`;
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  let best = null;
-  let bestCount = 0;
-  for (const [key, count] of counts) {
-    const [w, h] = key.split('x').map(Number);
-    if (count > bestCount || (count === bestCount && best && w * h < best.w * best.h)) {
-      best = { w, h };
-      bestCount = count;
-    }
-  }
-  return best;
-}
-
-/**
- * Stage 3 — fit each page onto one common canvas so all output pages share
- * identical dimensions (uniform print/font size). The page is centered on a
- * `fitW`x`fitH` canvas: pages of that size are untouched, smaller pages are
- * padded, and the rare larger page is scaled DOWN to fit (aspect preserved).
- * Nothing is ever cropped. Trim and border are opt-in.
- */
-async function imFinish(magick, src, dest, { trim, fuzz, border, background, fitW, fitH }) {
+async function imFinish(magick, src, dest, { trim, fuzz, border, background }) {
   const args = [src, '-background', background];
   if (trim) {
     args.push('-fuzz', `${fuzz}%`, '-trim', '+repage');
   }
-  // ">" only shrinks pages larger than the canvas; it never enlarges, so the
-  // common-size pages keep their exact pixels and only outliers are resized.
-  args.push('-resize', `${fitW}x${fitH}>`);
   if (border > 0) {
     args.push('-bordercolor', background, '-border', String(border), '+repage');
   }
-  args.push('-gravity', 'center', '-extent', `${fitW + 2 * border}x${fitH + 2 * border}`, '+repage');
   // Ensure clean, alpha-free output that img2pdf packs without transcoding surprises.
   args.push('-alpha', 'remove', '-alpha', 'off', dest);
   const { cmd, args: full } = withBase(magick.convert, args);
@@ -420,18 +381,11 @@ export async function processPdf(options) {
       });
     }
 
-    // Stage 3 — fit every page onto one common canvas (the dominant page size)
-    // so all pages share the exact same size. No cropping ever occurs; only the
-    // rare oversized page is scaled down to fit.
-    const sizes = await mapPool(processed, jobs, (src) => getSize(magick, src));
-    const fit = commonSize(sizes);
-    log(
-      `Normalizing ${processed.length} page(s) to ${fit.w + 2 * border}x${fit.h + 2 * border}px ` +
-        `(trim=${trim}, border=${border})...`
-    );
+    // Stage 3 — final touch-ups (size-preserving by default).
+    log(`Finishing ${processed.length} page(s) (trim=${trim}, border=${border})...`);
     const finalPages = await mapPool(processed, jobs, async (src, i) => {
       const dest = path.join(finalDir, `page-${pad(i)}.png`);
-      await imFinish(magick, src, dest, { trim, fuzz, border, background, fitW: fit.w, fitH: fit.h });
+      await imFinish(magick, src, dest, { trim, fuzz, border, background });
       return dest;
     });
 
