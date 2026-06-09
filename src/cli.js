@@ -25,13 +25,19 @@ const program = new Command();
 program
   .name('pdf-cut')
   .description(
-    'Split a scanned book PDF (two book pages per landscape sheet) into a clean\n' +
-      'PDF with one scanned page per PDF page, automatically deskewed and aligned.'
+    'Split a scanned book PDF (two book pages per sheet, side by side or stacked)\n' +
+      'into a clean PDF with one scanned page per PDF page, automatically deskewed\n' +
+      'and aligned.'
   )
   .argument('<input>', 'source PDF file')
   .option('-o, --output <file>', 'output PDF file (default: <input>.cut.pdf)')
   .option('-r, --dpi <n>', 'rasterization resolution in DPI', (v) => toInt(v, '--dpi'), 300)
   .option('--no-split', 'do not split sheets in half (deskew only)')
+  .option(
+    '--split-axis <axis>',
+    'how to cut each sheet: auto (along the longer side), lr (left/right), tb (top/bottom)',
+    'auto'
+  )
   .option('--right-to-left', 'order the two halves right-to-left (e.g. manga/Hebrew)', false)
   .option('--no-deskew', 'disable automatic deskew/straightening')
   .option(
@@ -119,6 +125,7 @@ try {
     output,
     dpi: opts.dpi,
     split: opts.split,
+    splitAxis: opts.splitAxis,
     rightToLeft: opts.rightToLeft,
     deskew: opts.deskew,
     deskewThreshold: opts.deskewThreshold,

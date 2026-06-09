@@ -58,26 +58,47 @@ async function rasterize(input, workDir, dpi) {
   return files;
 }
 
+/** Read a PNG's pixel dimensions via ImageMagick `identify`. */
+async function getSize(magick, file) {
+  const { cmd, args } = withBase(magick.identify, ['-format', '%w %h', file]);
+  const { stdout } = await run(cmd, args);
+  const [w, h] = stdout.trim().split(/\s+/).map(Number);
+  return { w, h };
+}
+
 /**
- * Split a single landscape sheet into its two halves. Returns the produced
- * file paths ordered for reading (left→right, or right→left when requested).
+ * Split a two-up sheet into its two book pages along the sheet's *longer* axis:
+ * a landscape sheet (wider than tall) is cut left/right, a portrait sheet
+ * (taller than wide) is cut top/bottom. Cutting the wrong axis would leave each
+ * "page" the full sheet height — i.e. double height — which is exactly the
+ * symptom when top/bottom scans are cut as if they were side-by-side.
+ *
+ * `axis` forces a choice: 'auto' (default), 'lr' (left/right), or 'tb' (top/bottom).
+ * Returns the produced file paths in reading order plus what was decided.
  */
-async function splitSheet(magick, sheet, outDir, { rightToLeft }) {
+async function splitSheet(magick, sheet, outDir, { rightToLeft, axis }) {
+  const { w, h } = await getSize(magick, sheet);
+  const used = axis === 'lr' || axis === 'tb' ? axis : w >= h ? 'lr' : 'tb';
+
   const outPattern = path.join(outDir, 'half-%d.png');
-  // -crop 50%x100% yields tile 0 (left) and tile 1 (right).
+  // lr: 50%x100% → tile 0 = left, tile 1 = right.
+  // tb: 100%x50% → tile 0 = top,  tile 1 = bottom.
+  const geometry = used === 'lr' ? '50%x100%' : '100%x50%';
   const { cmd, args } = withBase(magick.convert, [
     sheet,
     '-crop',
-    '50%x100%',
+    geometry,
     '+repage',
     '+adjoin',
     outPattern,
   ]);
   await run(cmd, args);
 
-  const left = path.join(outDir, 'half-0.png');
-  const right = path.join(outDir, 'half-1.png');
-  return rightToLeft ? [right, left] : [left, right];
+  const first = path.join(outDir, 'half-0.png');
+  const second = path.join(outDir, 'half-1.png');
+  // Top/bottom is always read top-then-bottom; only left/right honors RTL.
+  const halves = used === 'lr' && rightToLeft ? [second, first] : [first, second];
+  return { halves, w, h, used };
 }
 
 /**
@@ -222,6 +243,7 @@ async function mapPool(items, limit, worker) {
  * @param {string} options.output       Path to the destination PDF.
  * @param {number} options.dpi          Rasterization resolution.
  * @param {boolean} options.split       Split each sheet into two halves.
+ * @param {string} options.splitAxis    Split axis: 'auto' | 'lr' | 'tb'.
  * @param {boolean} options.rightToLeft Order halves right→left.
  * @param {boolean} options.deskew      Auto-straighten each page.
  * @param {number} options.deskewThreshold  Deskew sensitivity (percent).
@@ -251,6 +273,7 @@ export async function processPdf(options) {
     output,
     dpi,
     split,
+    splitAxis,
     rightToLeft,
     deskew,
     deskewThreshold,
@@ -335,7 +358,11 @@ export async function processPdf(options) {
       for (let i = 0; i < sheets.length; i++) {
         const sheetDir = path.join(halvesDir, String(i));
         await mkdir(sheetDir);
-        const halves = await splitSheet(magick, sheets[i], sheetDir, { rightToLeft });
+        const { halves, w, h, used } = await splitSheet(magick, sheets[i], sheetDir, {
+          rightToLeft,
+          axis: splitAxis,
+        });
+        log(`  sheet ${i + 1}: ${w}x${h}px → ${used === 'lr' ? 'left/right' : 'top/bottom'}`);
         rawPages.push(...halves);
       }
     } else {
