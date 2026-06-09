@@ -3,8 +3,9 @@
 Turn a scanned book PDF — where **two book pages are scanned onto one sheet**
 (side by side *or* stacked top/bottom) and the scan is **slightly rotated** —
 into a clean PDF with **one scanned page per PDF page**, automatically
-straightened (deskewed) and aligned. Each sheet is cut along its longer side, so
-landscape sheets split left/right and portrait sheets split top/bottom.
+straightened (deskewed) and aligned. The cut axis is detected from the *gutter*
+(the empty band between the two pages), so side-by-side pages split left/right
+and stacked pages split top/bottom — regardless of the sheet's shape.
 
 It is a small Node.js CLI that orchestrates a battle-tested binary toolchain,
 all bundled in a Docker image so it runs anywhere (including **WSL with
@@ -110,7 +111,7 @@ Options:
   -o, --output <file>       output PDF file (default: <input>.cut.pdf)
   -r, --dpi <n>             rasterization resolution in DPI (default: 300)
   --no-split                do not split sheets in half (deskew only)
-  --split-axis <axis>       auto (cut along the longer side), lr (left/right), tb (top/bottom) (default: auto)
+  --split-axis <axis>       auto (detect the gutter), lr (left/right), tb (top/bottom) (default: auto)
   --right-to-left           order the two halves right-to-left (e.g. manga/Hebrew)
   --no-deskew               disable automatic deskew/straightening
   --deskew-threshold <pct>  deskew sensitivity in percent (default: 40)

@@ -66,19 +66,55 @@ async function getSize(magick, file) {
   return { w, h };
 }
 
+/** Mean brightness (0=black .. 1=white) of an explicit crop region of the sheet. */
+async function stripBrightness(magick, sheet, geometry) {
+  const { cmd, args } = withBase(magick.convert, [
+    sheet,
+    '-colorspace', 'Gray',
+    '-crop', geometry,
+    '+repage',
+    '-format', '%[fx:mean]',
+    'info:',
+  ]);
+  const { stdout } = await run(cmd, args);
+  return parseFloat(stdout.trim());
+}
+
 /**
- * Split a two-up sheet into its two book pages along the sheet's *longer* axis:
- * a landscape sheet (wider than tall) is cut left/right, a portrait sheet
- * (taller than wide) is cut top/bottom. Cutting the wrong axis would leave each
- * "page" the full sheet height — i.e. double height — which is exactly the
- * symptom when top/bottom scans are cut as if they were side-by-side.
+ * Decide which way to cut a two-up sheet. The reliable signal is the *gutter*:
+ * the empty band between the two book pages has far less ink than a band cut
+ * through text. We compare a centered vertical strip (would be the gutter when
+ * the pages are side by side → cut left/right) against a centered horizontal
+ * strip (the gutter when the pages are stacked → cut top/bottom) and split along
+ * whichever central band is emptier/brighter. Aspect ratio is only a tie-break,
+ * because it is unreliable (e.g. two tall pages side by side make a portrait
+ * sheet that must still be cut left/right). 'lr'/'tb' force the choice.
+ */
+async function chooseAxis(magick, sheet, axis, w, h) {
+  if (axis === 'lr' || axis === 'tb') return axis;
+  // Single centered strips (explicit WxH+X+Y so ImageMagick doesn't tile).
+  const vw = Math.max(1, Math.round(w * 0.08));
+  const hh = Math.max(1, Math.round(h * 0.08));
+  const vertical = await stripBrightness(magick, sheet, `${vw}x${h}+${Math.round((w - vw) / 2)}+0`);
+  const horizontal = await stripBrightness(magick, sheet, `${w}x${hh}+0+${Math.round((h - hh) / 2)}`);
+  // The gutter band is brighter (emptier); even a small but consistent margin is
+  // meaningful. Only fall back to aspect ratio when the two are all but equal.
+  if (Math.abs(vertical - horizontal) < 0.004) return w >= h ? 'lr' : 'tb';
+  return vertical > horizontal ? 'lr' : 'tb';
+}
+
+/**
+ * Split a two-up sheet into its two book pages along the detected gutter axis
+ * (see chooseAxis): side-by-side pages are cut left/right, stacked pages
+ * top/bottom. Cutting the wrong axis leaves two pages on every output page
+ * ("double pages") or a full-height sliver ("double height").
  *
  * `axis` forces a choice: 'auto' (default), 'lr' (left/right), or 'tb' (top/bottom).
  * Returns the produced file paths in reading order plus what was decided.
  */
 async function splitSheet(magick, sheet, outDir, { rightToLeft, axis }) {
   const { w, h } = await getSize(magick, sheet);
-  const used = axis === 'lr' || axis === 'tb' ? axis : w >= h ? 'lr' : 'tb';
+  const used = await chooseAxis(magick, sheet, axis, w, h);
 
   const outPattern = path.join(outDir, 'half-%d.png');
   // lr: 50%x100% → tile 0 = left, tile 1 = right.

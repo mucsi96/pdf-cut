@@ -35,7 +35,7 @@ program
   .option('--no-split', 'do not split sheets in half (deskew only)')
   .option(
     '--split-axis <axis>',
-    'how to cut each sheet: auto (along the longer side), lr (left/right), tb (top/bottom)',
+    'how to cut each sheet: auto (detect the gutter), lr (left/right), tb (top/bottom)',
     'auto'
   )
   .option('--right-to-left', 'order the two halves right-to-left (e.g. manga/Hebrew)', false)
