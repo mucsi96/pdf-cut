@@ -1,0 +1,28 @@
+{
+  "name": "pdf-cut",
+  "version": "1.0.0",
+  "description": "Split scanned book PDFs (two book pages per landscape sheet) into one page each, with automatic deskew/alignment.",
+  "type": "module",
+  "bin": {
+    "pdf-cut": "src/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/cli.js"
+  },
+  "keywords": [
+    "pdf",
+    "scan",
+    "book",
+    "deskew",
+    "split",
+    "cli"
+  ],
+  "author": "Igor Bari",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.1.0"
+  }
+}
