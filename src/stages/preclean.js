@@ -4,14 +4,22 @@ import sharp from 'sharp';
 import { stageDir } from '../config.js';
 import { toGrayRaw } from '../img/projection.js';
 import { analyzeContent } from '../img/content.js';
+import { registerToWindow } from '../img/register.js';
 import { mmToPx, median } from '../img/geometry.js';
 import { log } from '../util/log.js';
 
 export const aiStage = false;
 
 export function params(ctx) {
-  return { dpi: ctx.cfg.dpi, preclean: ctx.cfg.preclean, pageSize: ctx.cfg.assemble.pageSize };
+  return {
+    dpi: ctx.cfg.dpi,
+    preclean: ctx.cfg.preclean,
+    pageSize: ctx.cfg.assemble.pageSize,
+    coverFullBleed: true
+  };
 }
+
+const isCover = (key) => key.startsWith('page-0001');
 
 function parsePageSize(spec, dpi) {
   if (spec === 'A5') return { w: mmToPx(148, dpi), h: mmToPx(210, dpi) };
@@ -24,7 +32,7 @@ function parsePageSize(spec, dpi) {
 export async function run(ctx, io) {
   const cfg = ctx.cfg.preclean;
   const dpi = ctx.cfg.dpi;
-  const srcDir = stageDir(ctx.workdir, 'deskew');
+  const srcDir = stageDir(ctx.workdir, 'split');
   const pages = (await fs.readdir(srcDir)).filter((f) => /^page-\d{4}-[LR]\.png$/.test(f)).sort();
 
   // Pass A: content bounding boxes (residue-free), cached in the manifest.
@@ -40,7 +48,9 @@ export async function run(ctx, io) {
     const meta = await sharp(srcPath).metadata();
     const raw = await toGrayRaw(srcPath, { maxDim: cfg.analysisMaxDim });
     const scale = meta.width / raw.width;
-    const { bbox } = analyzeContent(raw, cfg);
+    // Covers are full-bleed: their content touches the border, so the
+    // border-connected residue removal must not run on them.
+    const { bbox } = analyzeContent(raw, { ...cfg, removeEdgeConnected: !isCover(key) });
     const fullBbox = bbox
       ? {
           x: Math.round(bbox.x * scale),
@@ -100,54 +110,23 @@ export async function run(ctx, io) {
     const srcPath = path.join(srcDir, file);
     const outPath = path.join(io.dir, `${key}.png`);
     const bbox = boxes[key];
-
-    const canvas = sharp({
-      create: { width: window.w, height: window.h, channels: 3, background: '#ffffff' }
-    });
-
-    if (bbox) {
+    if (isCover(key) && bbox) {
+      // Full-bleed cover: crop to the content and fill the whole page window
+      // edge to edge (same fitting the AI-recreated cover gets).
       const meta = await sharp(srcPath).metadata();
-      const crop = {
-        left: Math.max(0, bbox.x - pad),
-        top: Math.max(0, bbox.y - pad),
-        right: Math.min(meta.width, bbox.x + bbox.w + pad),
-        bottom: Math.min(meta.height, bbox.y + bbox.h + pad)
-      };
-      // Destination of the crop's top-left, derived from the registration of
-      // the bbox itself (centered horizontally, top at margin).
-      let dstX = Math.round((window.w - bbox.w) / 2) - (bbox.x - crop.left);
-      let dstY = window.topPx - (bbox.y - crop.top);
-      // Clip to the window.
-      if (dstX < 0) {
-        crop.left -= dstX;
-        dstX = 0;
-      }
-      if (dstY < 0) {
-        crop.top -= dstY;
-        dstY = 0;
-      }
-      crop.right = Math.min(crop.right, crop.left + (window.w - dstX));
-      crop.bottom = Math.min(crop.bottom, crop.top + (window.h - dstY));
-
-      if (crop.right > crop.left && crop.bottom > crop.top) {
-        const content = await sharp(srcPath)
-          .extract({
-            left: crop.left,
-            top: crop.top,
-            width: crop.right - crop.left,
-            height: crop.bottom - crop.top
-          })
-          .toBuffer();
-        await canvas
-          .composite([{ input: content, left: dstX, top: dstY }])
-          .grayscale()
-          .png()
-          .toFile(outPath);
-      } else {
-        await canvas.grayscale().png().toFile(outPath);
-      }
+      await sharp(srcPath)
+        .extract({
+          left: Math.max(0, bbox.x),
+          top: Math.max(0, bbox.y),
+          width: Math.min(bbox.w, meta.width - bbox.x),
+          height: Math.min(bbox.h, meta.height - bbox.y)
+        })
+        .resize(window.w, window.h, { fit: 'cover', position: 'centre' })
+        .grayscale()
+        .png()
+        .toFile(outPath);
     } else {
-      await canvas.grayscale().png().toFile(outPath);
+      await registerToWindow({ src: srcPath, bbox, window, pad, outPath });
     }
 
     if (ctx.debug) {

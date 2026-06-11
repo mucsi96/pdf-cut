@@ -75,7 +75,7 @@ test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 
   assert.match(images, /\s1\s+1\s/, 'expected a 1-bit 1-component image');
 
   // Deskew must recover the injected angles.
-  const angles = JSON.parse(await fs.readFile(path.join(workdir, '02-deskew/angles.json'), 'utf8'));
+  const angles = JSON.parse(await fs.readFile(path.join(workdir, '05-deskew/angles.json'), 'utf8'));
   for (const scan of [2, 3]) {
     for (const side of ['L', 'R']) {
       const key = `page-000${scan}-${side}`;

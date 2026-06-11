@@ -43,8 +43,9 @@ const DEFAULT_PROMPT =
   'scanning artifacts, no punch holes, no page border, no library stickers.';
 
 export async function run(ctx, io) {
-  // Use the deskewed (uncropped) scan halves as reference for the AI.
-  const refDir = stageDir(ctx.workdir, 'deskew');
+  // Use the raw split scan halves as reference for the AI: the cover is
+  // full-bleed, so preclean/deskew would have blanked or clipped it.
+  const refDir = stageDir(ctx.workdir, 'split');
   const targets = [['front', 'R'], ...(ctx.opts.backCover ? [['back', 'L']] : [])];
 
   // Output size = the registered page window so assemble can mix it with pages.

@@ -103,7 +103,7 @@ addCommonOptions(
       input: path.resolve(input),
       pages: opts.pages || '1',
       to: 'cover',
-      skipStages: ['analyze', 'inpaint', 'binarize']
+      skipStages: ['analyze', 'inpaint', 'deskew', 'binarize']
     };
     checkKeys(pipelineOpts, { to: 'cover' });
     await runPipeline(pipelineOpts);

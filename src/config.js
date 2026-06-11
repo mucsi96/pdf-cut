@@ -50,6 +50,10 @@ export const defaults = {
     // Adaptive threshold: pixel is ink if value < localMean - offset.
     blurSigma: 12,
     offset: 24,
+    // Pixels darker than this are always ink regardless of the local mean —
+    // keeps solid blacks from hollowing and antialiased line/glyph edges
+    // (~50% coverage after deskew interpolation) from dithering into dashes.
+    darkFloor: 150,
     // Connected dark specks smaller than this area (px at full res) are removed.
     despeckleMaxAreaAt600dpi: 24
   },
@@ -86,10 +90,10 @@ export const defaults = {
 export const STAGE_NAMES = [
   'rasterize',
   'split',
-  'deskew',
   'preclean',
   'analyze',
   'inpaint',
+  'deskew',
   'binarize',
   'cover',
   'assemble'

@@ -2,12 +2,13 @@
 
 Turn a 2-up scanned book PDF into a print-quality, one-page-per-page PDF:
 
-1. **rasterize** — each scan page → grayscale PNG at 600 DPI (`pdftoppm`)
+1. **rasterize** — extracts each page's embedded scan bitmap losslessly at native resolution
+   (`pdfimages`); falls back to `pdftoppm` rendering for non-single-image pages or with `--no-extract`
 2. **split** — gutter detection cuts each landscape scan into left/right book pages
-3. **deskew** — projection-profile skew detection (±3°, 0.02° precision), one high-quality grayscale rotation
-4. **preclean** — scanner residue connected to the page edge is erased; the content block of every page is registered to identical margins
-5. **analyze** *(AI)* — Gemini vision finds punch-hole damage (with the text it covers) and QA-checks every page
-6. **inpaint** *(AI)* — OpenAI `gpt-image-1` mask-inpaints each hole from a 1024×1024 context patch; only the masked pixels are composited back
+3. **preclean** — scanner residue connected to the page edge is erased; the content block of every page is registered to identical margins
+4. **analyze** *(AI)* — Gemini vision finds punch-hole damage (with the text it covers) and QA-checks every page
+5. **inpaint** *(AI)* — OpenAI `gpt-image-1` mask-inpaints each hole from a 1024×1024 context patch; only the masked pixels are composited back
+6. **deskew** — projection-profile skew detection (±3°, 0.02° precision) on the already-cleaned, hole-free pages; one high-quality grayscale rotation, then the straightened content is re-registered
 7. **binarize** — adaptive threshold → crisp 1-bit pages, despeckled, CCITT G4 TIFF
 8. **cover** *(AI)* — Gemini 3 Pro Image recreates the cover in full color (4K)
 9. **assemble** — `img2pdf` embeds the G4 TIFFs losslessly at the exact physical page size

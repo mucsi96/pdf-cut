@@ -11,14 +11,10 @@ export function params(ctx) {
   return {
     dpi: ctx.cfg.dpi,
     binarize: ctx.cfg.binarize,
-    source: ctx.opts.skipAi ? 'preclean' : 'inpaint',
+    source: 'deskew',
     window: ctx.window || null
   };
 }
-
-// Always-ink floor: pixels darker than this are ink regardless of the local
-// mean (keeps the inside of large solid black areas from hollowing out).
-const ABSOLUTE_DARK = 96;
 
 function despeckle(ink, width, height, maxArea) {
   const visited = new Uint8Array(ink.length);
@@ -50,8 +46,7 @@ function despeckle(ink, width, height, maxArea) {
 
 export async function run(ctx, io) {
   const cfg = ctx.cfg.binarize;
-  const sourceStage = ctx.opts.skipAi ? 'preclean' : 'inpaint';
-  const srcDir = stageDir(ctx.workdir, sourceStage);
+  const srcDir = stageDir(ctx.workdir, 'deskew');
   const pages = (await fs.readdir(srcDir)).filter((f) => /^page-\d{4}-[LR]\.png$/.test(f)).sort();
   const dpiScale = (ctx.cfg.dpi / 600) ** 2;
   const maxArea = Math.max(1, Math.round(cfg.despeckleMaxAreaAt600dpi * dpiScale));
@@ -66,7 +61,7 @@ export async function run(ctx, io) {
     const n = info.width * info.height;
     const ink = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
-      ink[i] = data[i] < ABSOLUTE_DARK || data[i] < blurred[i] - cfg.offset ? 1 : 0;
+      ink[i] = data[i] < cfg.darkFloor || data[i] < blurred[i] - cfg.offset ? 1 : 0;
     }
     despeckle(ink, info.width, info.height, maxArea);
 

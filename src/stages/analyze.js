@@ -75,9 +75,6 @@ export async function run(ctx, io) {
           });
         }
 
-        if (Math.abs(result.residualSkewDeg) > 0.15) {
-          log.warn(`analyze: ${key} reports residual skew ${result.residualSkewDeg}° — consider --force deskew after tuning`);
-        }
         io.done(key, { holes: result.holes.length });
         log.stage('analyze', `${key}: ${result.holes.length} hole(s)${result.qualityFlags.length ? `, flags: ${result.qualityFlags.join(',')}` : ''}`);
       })
