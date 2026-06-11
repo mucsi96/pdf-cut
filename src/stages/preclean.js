@@ -55,7 +55,8 @@ export async function run(ctx, io) {
     const { bbox, residueBoxes } = analyzeContent(raw, {
       ...cfg,
       removeEdgeConnected: !isCover(key),
-      borderBandPx: mmToPx(cfg.borderBandMm, dpi) / scale,
+      borderBandXPx: mmToPx(cfg.borderBandSideMm, dpi) / scale,
+      borderBandYPx: mmToPx(cfg.borderBandTopBottomMm, dpi) / scale,
       barMaxWPx: mmToPx(cfg.barMaxWMm, dpi) / scale,
       barMinHPx: mmToPx(cfg.barMinHMm, dpi) / scale,
       barOuterFrac: cfg.barOuterFrac

@@ -46,6 +46,25 @@ test('detectSkew recovers a known rotation with the right sign', async () => {
   assert.ok(Math.abs(angle - 1.2) < 0.1, `expected ~1.2°, got ${angle}°`);
 });
 
+test('top border band removes edge residue but keeps a header near the top edge', async () => {
+  const { analyzeContent } = await import('../src/img/content.js');
+  const width = 600;
+  const height = 800;
+  const data = new Uint8Array(width * height).fill(255);
+  // Scan-edge line touching the top border.
+  for (let y = 0; y < 2; y++) for (let x = 0; x < width; x++) data[y * width + x] = 0;
+  // Header text band ~3mm (18px @150dpi) from the top — real content.
+  for (let y = 18; y < 30; y++) for (let x = 60; x < 540; x++) data[y * width + x] = 0;
+
+  const base = { darkThreshold: 128, minInkPx: 3, borderBandXPx: 18 };
+  // 1.5mm top band (9px): edge line removed, header survives.
+  const kept = analyzeContent({ data, width, height }, { ...base, borderBandYPx: 9 });
+  assert.ok(kept.bbox && kept.bbox.y === 18, `header eaten: ${JSON.stringify(kept.bbox)}`);
+  // A 4mm band (24px) would reach the header and eat it — the old bug.
+  const eaten = analyzeContent({ data, width, height }, { ...base, borderBandYPx: 24 });
+  assert.equal(eaten.bbox, null);
+});
+
 test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 }, async (t) => {
   if (!(await hasBinaries())) {
     t.skip('system binaries (poppler/imagemagick/img2pdf) not available');
@@ -105,6 +124,34 @@ test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 
       }
     }
     assert.equal(darkPx, 0, `${file}: ${darkPx} dark px left in the inner-edge strip`);
+  }
+
+  // The running header sits close to the top edge; the residue cleanup must
+  // not eat it. Find the header rule (densest row in the top third) and
+  // require ink above it in the left 40% of the page (page number + header
+  // text; punch holes live far right and are excluded).
+  {
+    const { data, info } = await sharp(path.join(workdir, '06-binarize/page-0002-L.tif'))
+      .grayscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const rowInk = new Array(info.height).fill(0);
+    for (let y = 0; y < Math.floor(info.height / 3); y++) {
+      for (let x = 0; x < info.width; x++) {
+        if (data[(y * info.width + x) * info.channels] < 128) rowInk[y]++;
+      }
+    }
+    const ruleY = rowInk.indexOf(Math.max(...rowInk));
+    // The page number sits ~4.5mm above the rule, nearest to the page edge —
+    // the first victim of an over-aggressive top band.
+    const zoneTop = ruleY - Math.round((4.5 / 25.4) * Number(DPI));
+    let inkAboveRule = 0;
+    for (let y = 0; y < zoneTop; y++) {
+      for (let x = 0; x < Math.floor(info.width * 0.4); x++) {
+        if (data[(y * info.width + x) * info.channels] < 128) inkAboveRule++;
+      }
+    }
+    assert.ok(inkAboveRule > 30, `page number above the header was erased (ink=${inkAboveRule}, ruleY=${ruleY})`);
   }
 
   // Debug report exists.

@@ -8,7 +8,8 @@ export function analyzeContent(
     darkThreshold,
     minInkPx,
     removeEdgeConnected = true,
-    borderBandPx = 1,
+    borderBandXPx = 1,
+    borderBandYPx = 1,
     // Detached vertical residue bars (binding shadows, neighbor-page
     // slivers): thinner than barMaxWPx, taller than barMinHPx and centered
     // in the outer barOuterFrac of the page width. 0 disables.
@@ -28,7 +29,8 @@ export function analyzeContent(
   // full-bleed pages (covers) where the content itself touches the border.
   const edge = new Uint8Array(n);
   if (removeEdgeConnected) {
-    const band = Math.max(1, Math.round(borderBandPx));
+    const bandX = Math.max(1, Math.round(borderBandXPx));
+    const bandY = Math.max(1, Math.round(borderBandYPx));
     const stack = [];
     const push = (i) => {
       if (dark[i] && !edge[i]) {
@@ -37,10 +39,10 @@ export function analyzeContent(
       }
     };
     for (let y = 0; y < height; y++) {
-      const inYBand = y < band || y >= height - band;
+      const inYBand = y < bandY || y >= height - bandY;
       const row = y * width;
       for (let x = 0; x < width; x++) {
-        if (inYBand || x < band || x >= width - band) push(row + x);
+        if (inYBand || x < bandX || x >= width - bandX) push(row + x);
       }
     }
     while (stack.length) {

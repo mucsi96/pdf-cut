@@ -43,10 +43,12 @@ export const defaults = {
     // Rows/cols need at least this many dark px (at analysis scale) to count
     // as content when computing the content bounding box.
     minInkPx: 3,
-    // Residue removal erases dark regions touching (or lying within) this
-    // band from the page edge — catches binding shadows and neighbor-page
-    // slivers that are separated from the border by a white gap.
-    borderBandMm: 4,
+    // Residue removal erases dark regions touching (or lying within) a band
+    // from the page edge. Sides get a wide band (binding shadows, slivers of
+    // the neighbor page); top/bottom must stay small because running headers
+    // and page numbers sit close to the edge on tight scans.
+    borderBandSideMm: 3,
+    borderBandTopBottomMm: 1.5,
     // Detached vertical residue bars anywhere in the outer fifth of the page
     // (binding shadows that survive the border band): thinner than barMaxWMm
     // and taller than barMinHMm get erased explicitly.

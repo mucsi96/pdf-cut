@@ -60,22 +60,23 @@ export async function generateFixture({ out, pages, dpi }) {
       args.push('xc:white', '-font', FONT, '-fill', 'black');
       for (const [half, ox] of [['L', 0], ['R', 148]]) {
         const pageNo = (n - 2) * 2 + (half === 'L' ? 6 : 7);
-        // Running header with rule; the left rule extends under the punch hole.
+        // Running header with rule, close to the top edge like tight real
+        // scans; the left rule extends under the punch hole.
         args.push('-pointsize', '9');
-        text(ox + 20, 19, half === 'L' ? 'ZX Spectrum BASIC-Abenteuer' : 'EPISODE 1');
-        text(ox + (half === 'L' ? 20 : 122), 12, String(pageNo));
-        draw(`rectangle ${px(ox + 18)},${px(20.5)} ${px(ox + (half === 'L' ? 142 : 128))},${px(21)}`);
+        text(ox + 20, 9, half === 'L' ? 'ZX Spectrum BASIC-Abenteuer' : 'EPISODE 1');
+        text(ox + (half === 'L' ? 20 : 122), 6, String(pageNo));
+        draw(`rectangle ${px(ox + 18)},${px(10.5)} ${px(ox + (half === 'L' ? 142 : 128))},${px(11)}`);
         // Body text.
         args.push('-pointsize', '11');
         let line = 0;
-        for (let y = 34; y <= 180; y += 7) {
+        for (let y = 20; y <= 180; y += 7) {
           text(ox + 20, y, BODY_LINES[line++ % BODY_LINES.length]);
         }
       }
       // Punch holes near the gutter, the left one over the header rule.
       const holeR = 3.5;
-      draw(`circle ${px(139)},${px(20.7)} ${px(139 + holeR)},${px(20.7)}`);
-      draw(`circle ${px(157)},${px(17)} ${px(157 + holeR)},${px(17)}`);
+      draw(`circle ${px(139)},${px(10.7)} ${px(139 + holeR)},${px(10.7)}`);
+      draw(`circle ${px(157)},${px(7)} ${px(157 + holeR)},${px(7)}`);
       // Gray scanner residue touching the outer edges.
       args.push('-fill', 'gray(55%)');
       draw(`rectangle 0,0 ${px(3)},${H}`);
