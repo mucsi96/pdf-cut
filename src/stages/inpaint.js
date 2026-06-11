@@ -90,7 +90,15 @@ export async function run_(ctx, { stageDir, params }) {
     for (const p of pagePatches) {
       const outPatch = path.join(outDir, `${p.id}.png`);
       if (!fs.existsSync(outPatch)) throw new Error(`inpaint: iopaint did not produce ${p.id}.png`);
-      composites.push({ input: await sharp(outPatch).grayscale().png().toBuffer(), left: p.left, top: p.top });
+      // Stretch the LaMa output to match the high-contrast cleaned page:
+      // faint inpainting ghosts go to paper white, strokes to ink black.
+      let patchImg = sharp(outPatch).grayscale();
+      if (params.contrastStretch) {
+        const { black = 80, white = 210 } = params.contrastStretch;
+        const slope = 255 / (white - black);
+        patchImg = patchImg.linear(slope, -black * slope);
+      }
+      composites.push({ input: await patchImg.png().toBuffer(), left: p.left, top: p.top });
       // Debug: before/after pair for each patch.
       const before = path.join(imgDir, `${p.id}.png`);
       await run('montage', [before, outPatch, '-tile', '2x1', '-geometry', '+4+4',
@@ -107,8 +115,11 @@ export async function run_(ctx, { stageDir, params }) {
     const boxes = pagePatches
       .map((p) => `<rect x="${p.left}" y="${p.top}" width="${p.size}" height="${p.size}" fill="none" stroke="#00a0ff" stroke-width="6"/>`)
       .join('');
-    await sharp(dst)
+    const marked = await sharp(dst)
       .composite([{ input: Buffer.from(`<svg width="${width}" height="${height}">${boxes}</svg>`) }])
+      .png()
+      .toBuffer();
+    await sharp(marked)
       .resize({ width: 1000 })
       .jpeg({ quality: 80 })
       .toFile(path.join(stageDir, 'debug', `patched-page-${pageId}.jpg`));

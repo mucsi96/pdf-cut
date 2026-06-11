@@ -32,14 +32,19 @@ def flatten_illumination(gray, kernel_px):
     return out.astype(np.uint8), bg
 
 
-def kill_border(img, margins, max_intrusion):
+def white_margins(img, margins):
     h, w = img.shape
     out = img.copy()
-    # Hard white margins.
     out[: margins["top"], :] = 255
     out[h - margins["bottom"]:, :] = 255
     out[:, : margins["left"]] = 255
     out[:, w - margins["right"]:] = 255
+    return out
+
+
+def kill_border(img, margins, max_intrusion):
+    h, w = img.shape
+    out = white_margins(img, margins)
     # Dark components touching the border with limited intrusion.
     dark = (out < 128).astype(np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
@@ -111,6 +116,9 @@ def soft_sauvola(gray, params):
     sq_mean = cv2.boxFilter(img * img, -1, (win, win))
     std = np.sqrt(np.maximum(sq_mean - mean * mean, 0))
     threshold = mean * (1.0 + k * (std / 128.0 - 1.0))
+    # Inside large solid black areas the local window is uniform and Sauvola
+    # would hollow them out — floor the threshold so dark pixels stay ink.
+    threshold = np.maximum(threshold, float(params.get("sauvolaDarkFloor", 100)))
     s = max(1.0, float(params["edgeSoftness"]))
     t = np.clip((img - (threshold - s)) / (2.0 * s), 0, 1)
     t = t * t * (3 - 2 * t)  # smoothstep: anti-aliased glyph edges
@@ -152,9 +160,13 @@ def main():
         gray = despeckle_margins(gray, p["despeckleBandPx"], p["minSpeckArea"])
 
         if p.get("mode", "smart-binarize") == "smart-binarize":
-            pic_mask = detect_picture_regions(gray, p)
+            # Detect on the PRE-flatten image (flattening brightens halftones
+            # out of the mid-tone band) and keep illustration regions from the
+            # original so their tones survive untouched.
+            pic_mask = detect_picture_regions(original, p)
+            illus_layer = white_margins(original, p["margins"])
             text_layer = soft_sauvola(gray, p)
-            out = (pic_mask * gray.astype(np.float32) +
+            out = (pic_mask * illus_layer.astype(np.float32) +
                    (1.0 - pic_mask) * text_layer.astype(np.float32))
             out = np.clip(out, 0, 255).astype(np.uint8)
             # Debug: detected illustration regions in blue.

@@ -37,6 +37,14 @@ def detect(gray, page_id, p, dpi):
     min_r = p["minDiamMm"] / 25.4 * dpi / 2.0 / DS
     max_r = p["maxDiamMm"] / 25.4 * dpi / 2.0 / DS
 
+    # Holes punched through text touch the surrounding strokes, which would
+    # merge into the blob and ruin its circularity. Opening with a kernel just
+    # under the minimum hole diameter strips anything thinner (text strokes,
+    # rules) while solid hole discs survive.
+    k_open = max(3, int(min_r) | 1)
+    dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN,
+                            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_open, k_open)))
+
     inner_frac = p["searchInnerWidthFrac"]
     if page_is_left(page_id):
         region = (sw * (1.0 - inner_frac), 0, sw, sh)  # right strip

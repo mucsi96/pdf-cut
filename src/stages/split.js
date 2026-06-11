@@ -61,8 +61,9 @@ export async function run_(ctx, { stageDir, params }) {
         `<line x1="${cut}" y1="0" x2="${cut}" y2="${height}" stroke="red" stroke-width="8"/>` +
         `<text x="${cut + 20}" y="120" font-size="100" fill="red">cut @ ${ratio}</text></svg>`,
     );
-    await sharp(scan.file)
-      .composite([{ input: svg }])
+    // Composite at full size first; sharp would otherwise resize before compositing.
+    const marked = await sharp(scan.file).composite([{ input: svg }]).png().toBuffer();
+    await sharp(marked)
       .resize({ width: 1400 })
       .jpeg({ quality: 80 })
       .toFile(path.join(stageDir, 'debug', `cut-scan-${pad(scan.num)}.jpg`));

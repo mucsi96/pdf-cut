@@ -29,6 +29,13 @@ def estimate_angle(gray, params):
     _, binary = cv2.threshold(small, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     # Fuse characters into text lines so the profile has sharp peaks.
     binary = cv2.dilate(binary, cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1)))
+    # Drop tall components (illustrations, punch holes, gutter shadows): only
+    # text lines should drive the projection profile.
+    max_h = params.get("lineMaxHeightPx", 30)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    for i in range(1, n):
+        if stats[i][3] > max_h:
+            binary[labels == i] = 0
 
     max_angle = params["maxAngle"]
     coarse = params["coarseStep"]

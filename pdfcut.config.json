@@ -37,6 +37,7 @@
     "despeckleBandPx": 350,
     "sauvolaWindowPx": 61,
     "sauvolaK": 0.2,
+    "sauvolaDarkFloor": 100,
     "edgeSoftness": 10,
     "picDensity": 0.35,
     "picMinAreaPx": 40000
@@ -48,7 +49,7 @@
     "circularityMin": 0.65,
     "edgeCircularityMin": 0.4,
     "searchInnerWidthFrac": 0.18,
-    "maskDilatePx": 12
+    "maskDilatePx": 24
   },
   "inpaint": {
     "patchSize": 768

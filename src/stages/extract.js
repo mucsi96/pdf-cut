@@ -114,7 +114,7 @@ function parseImageList(text) {
       width: parseInt(cols[3], 10),
       height: parseInt(cols[4], 10),
       enc: cols[8],
-      xppi: parseInt(cols[11], 10) || null,
+      xppi: parseInt(cols[12], 10) || null,
     });
   }
   return rows;

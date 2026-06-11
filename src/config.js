@@ -61,6 +61,7 @@ export const DEFAULT_CONFIG = {
     // smart-binarize parameters
     sauvolaWindowPx: 61,
     sauvolaK: 0.2,
+    sauvolaDarkFloor: 100,
     edgeSoftness: 10,
     picMidLow: 50,
     picMidHigh: 200,
@@ -78,13 +79,16 @@ export const DEFAULT_CONFIG = {
     // Punch holes sit near the gutter: search the inner fraction of the page
     // width (left edge of right-hand pages, right edge of left-hand pages).
     searchInnerWidthFrac: 0.18,
-    maskDilatePx: 12,
+    maskDilatePx: 24,
   },
   inpaint: {
     patchSize: 768,
     model: 'lama',
     device: 'cpu',
     modelDir: '/opt/models',
+    // Levels stretch applied to LaMa output patches; set to null to disable
+    // (e.g. when inpainting inside grayscale illustrations).
+    contrastStretch: { black: 80, white: 210 },
   },
   assemble: {
     bookName: 'book.pdf',

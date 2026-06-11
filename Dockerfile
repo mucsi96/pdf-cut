@@ -1,4 +1,7 @@
-FROM node:22-bookworm-slim
+# Override with --build-arg BASE_IMAGE=public.ecr.aws/docker/library/node:22-bookworm-slim
+# if you hit Docker Hub rate limits.
+ARG BASE_IMAGE=node:22-bookworm-slim
+FROM ${BASE_IMAGE}
 
 # ── System tools: poppler (pdfimages/pdftoppm/pdfinfo), ImageMagick (montage),
 #    img2pdf, Python for the OpenCV stages ─────────────────────────────────────
