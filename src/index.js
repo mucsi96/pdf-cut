@@ -11,6 +11,7 @@ function addCommonOptions(cmd) {
     .option('--workdir <dir>', 'work directory for intermediate stages', './work')
     .option('--out <file>', 'output PDF path', './output.pdf')
     .option('--dpi <n>', 'rasterization DPI', '600')
+    .option('--no-extract', 'always render pages with pdftoppm instead of extracting the embedded scan image')
     .option('--debug', 'write annotated debug images + HTML report to <workdir>/debug', false)
     .option('--skip-ai', 'skip all AI stages (analyze/inpaint/cover) — offline mode', false)
     .option('--force <stages>', 'comma-separated stages to rebuild (with downstream)', (v) => v.split(','))
