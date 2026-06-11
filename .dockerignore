@@ -1,0 +1,9 @@
+.git
+node_modules
+input
+work
+output
+.env
+.vscode
+README.md
+LICENSE
