@@ -9,7 +9,7 @@ export async function registerToWindow({ src, bbox, window, pad, outPath }) {
     create: { width: window.w, height: window.h, channels: 3, background: '#ffffff' }
   });
   if (!bbox) {
-    await canvas.grayscale().png().toFile(outPath);
+    await canvas.removeAlpha().grayscale().png().toFile(outPath);
     return;
   }
 
@@ -46,10 +46,11 @@ export async function registerToWindow({ src, bbox, window, pad, outPath }) {
       .toBuffer();
     await canvas
       .composite([{ input: content, left: dstX, top: dstY }])
+      .removeAlpha()
       .grayscale()
       .png()
       .toFile(outPath);
   } else {
-    await canvas.grayscale().png().toFile(outPath);
+    await canvas.removeAlpha().grayscale().png().toFile(outPath);
   }
 }

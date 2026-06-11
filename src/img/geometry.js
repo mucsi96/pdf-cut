@@ -41,3 +41,9 @@ export function median(values) {
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
+
+export function percentile(values, p) {
+  if (values.length === 0) throw new Error('percentile of empty array');
+  const s = [...values].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.round(p * (s.length - 1)))];
+}

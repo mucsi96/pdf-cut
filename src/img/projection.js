@@ -35,12 +35,16 @@ function smooth(values, radius) {
   return out;
 }
 
-// Find the gutter (split x) of a 2-up landscape scan: the center of the
-// widest low-ink valley within the central band. Falls back to the exact
-// midpoint when there is no convincing valley (e.g. a dark cover spine).
-export function detectGutter(raw, { centerBandFraction, minValleyContrast }) {
+// Find the gutter (split x) of a 2-up landscape scan: among the low-ink runs
+// within the central band, pick the one whose center is CLOSEST to the scan
+// center — that is the physical binding, even when wider white margins exist
+// next to dark binding-shadow bars. Falls back to the exact midpoint when
+// there is no convincing valley (e.g. a dark cover spine).
+export function detectGutter(raw, { centerBandFraction, minValleyContrast, minRunPx = 2 }) {
   const { width } = raw;
-  const col = smooth(columnDarkness(raw), Math.max(2, Math.round(width / 300)));
+  // Light smoothing only: a heavier kernel erodes the narrow white gap
+  // between binding-shadow bars below the minimum run width.
+  const col = smooth(columnDarkness(raw), Math.max(1, Math.round(width / 600)));
   const from = Math.round(width * (0.5 - centerBandFraction / 2));
   const to = Math.round(width * (0.5 + centerBandFraction / 2));
 
@@ -56,24 +60,25 @@ export function detectGutter(raw, { centerBandFraction, minValleyContrast }) {
     return { x: Math.round(width / 2), fallback: true, contrast, profile: col };
   }
 
-  // Center of the widest run of near-valley columns.
+  // Low-ink runs of at least minRunPx; choose the most central one.
   const limit = valley + 0.1 * (bandMean - valley);
-  let best = { start: -1, len: 0 };
+  let best = null;
   let runStart = -1;
   for (let x = from; x <= to; x++) {
     const low = x < to && col[x] <= limit;
     if (low && runStart === -1) runStart = x;
     if (!low && runStart !== -1) {
-      if (x - runStart > best.len) best = { start: runStart, len: x - runStart };
+      const len = x - runStart;
+      if (len >= minRunPx) {
+        const center = runStart + len / 2;
+        const dist = Math.abs(center - width / 2);
+        if (!best || dist < best.dist) best = { center, dist };
+      }
       runStart = -1;
     }
   }
-  return {
-    x: Math.round(best.start + best.len / 2),
-    fallback: false,
-    contrast,
-    profile: col
-  };
+  if (!best) return { x: Math.round(width / 2), fallback: true, contrast, profile: col };
+  return { x: Math.round(best.center), fallback: false, contrast, profile: col };
 }
 
 // Detect text skew via projection-profile variance maximization.

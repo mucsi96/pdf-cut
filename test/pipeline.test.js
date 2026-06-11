@@ -88,6 +88,25 @@ test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 
     }
   }
 
+  // Residue must be fully erased: the fixture places detached binding-shadow
+  // bars next to the gutter; the inner-edge strips of the output pages must
+  // be pure white.
+  for (const [file, fromRight] of [['page-0002-L.tif', true], ['page-0002-R.tif', false]]) {
+    const { data, info } = await sharp(path.join(workdir, '06-binarize', file))
+      .grayscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const stripW = Math.floor(info.width * 0.03);
+    let darkPx = 0;
+    for (let y = 0; y < info.height; y++) {
+      for (let dx = 0; dx < stripW; dx++) {
+        const x = fromRight ? info.width - 1 - dx : dx;
+        if (data[(y * info.width + x) * info.channels] < 128) darkPx++;
+      }
+    }
+    assert.equal(darkPx, 0, `${file}: ${darkPx} dark px left in the inner-edge strip`);
+  }
+
   // Debug report exists.
   await fs.access(path.join(workdir, 'debug/index.html'));
 

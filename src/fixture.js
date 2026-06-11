@@ -82,6 +82,12 @@ export async function generateFixture({ out, pages, dpi }) {
       draw(`rectangle ${W - px(2)},${px(40)} ${W},${px(170)}`);
       args.push('-fill', 'gray(35%)');
       draw(`circle ${px(1)},${px(185)} ${px(6)},${px(185)}`);
+      // Binding shadow: detached dark bars flanking the gutter, separated
+      // from the top/bottom border by a white gap (like real book scans).
+      args.push('-fill', 'gray(25%)');
+      draw(`rectangle ${px(145.5)},${px(25)} ${px(147)},${px(185)}`);
+      draw(`rectangle ${px(149.5)},${px(30)} ${px(150.5)},${px(180)}`);
+      args.push('-fill', 'black');
     }
 
     // Skew the whole scan; the rotation fill simulates the dark scanner lid.

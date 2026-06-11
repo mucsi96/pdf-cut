@@ -19,7 +19,12 @@ export const defaults = {
     centerBandFraction: 0.2,
     // A valley must be this much brighter than the band average to be trusted,
     // otherwise we fall back to the exact midpoint (e.g. on the cover spine).
-    minValleyContrast: 0.15
+    minValleyContrast: 0.15,
+    // Low-ink runs must be at least this wide to qualify as the gutter (so
+    // the cut never lands tight against content); the most central
+    // qualifying run wins. Binding-shadow bars stranded on either side of
+    // the cut are erased later by preclean's bar classifier.
+    minGutterRunMm: 6
   },
 
   deskew: {
@@ -38,6 +43,16 @@ export const defaults = {
     // Rows/cols need at least this many dark px (at analysis scale) to count
     // as content when computing the content bounding box.
     minInkPx: 3,
+    // Residue removal erases dark regions touching (or lying within) this
+    // band from the page edge — catches binding shadows and neighbor-page
+    // slivers that are separated from the border by a white gap.
+    borderBandMm: 4,
+    // Detached vertical residue bars anywhere in the outer fifth of the page
+    // (binding shadows that survive the border band): thinner than barMaxWMm
+    // and taller than barMinHMm get erased explicitly.
+    barMaxWMm: 3,
+    barMinHMm: 25,
+    barOuterFrac: 0.2,
     // Padding kept around the detected content box before erasing outside it.
     keepPadMm: 2,
     // Final page margins applied around the registered content block.

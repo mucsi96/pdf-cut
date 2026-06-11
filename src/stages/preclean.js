@@ -5,7 +5,7 @@ import { stageDir } from '../config.js';
 import { toGrayRaw } from '../img/projection.js';
 import { analyzeContent } from '../img/content.js';
 import { registerToWindow } from '../img/register.js';
-import { mmToPx, median } from '../img/geometry.js';
+import { mmToPx, percentile } from '../img/geometry.js';
 import { log } from '../util/log.js';
 
 export const aiStage = false;
@@ -37,11 +37,13 @@ export async function run(ctx, io) {
 
   // Pass A: content bounding boxes (residue-free), cached in the manifest.
   const boxes = {};
+  const residue = {};
   for (const file of pages) {
     const key = file.replace('.png', '');
     const cacheKey = `bbox:${key}`;
     if (io.manifest.items[cacheKey]) {
       boxes[key] = io.manifest.items[cacheKey].bbox;
+      residue[key] = io.manifest.items[cacheKey].residueBoxes || [];
       continue;
     }
     const srcPath = path.join(srcDir, file);
@@ -50,17 +52,23 @@ export async function run(ctx, io) {
     const scale = meta.width / raw.width;
     // Covers are full-bleed: their content touches the border, so the
     // border-connected residue removal must not run on them.
-    const { bbox } = analyzeContent(raw, { ...cfg, removeEdgeConnected: !isCover(key) });
-    const fullBbox = bbox
-      ? {
-          x: Math.round(bbox.x * scale),
-          y: Math.round(bbox.y * scale),
-          w: Math.round(bbox.w * scale),
-          h: Math.round(bbox.h * scale)
-        }
-      : null;
-    boxes[key] = fullBbox;
-    io.done(cacheKey, { bbox: fullBbox });
+    const { bbox, residueBoxes } = analyzeContent(raw, {
+      ...cfg,
+      removeEdgeConnected: !isCover(key),
+      borderBandPx: mmToPx(cfg.borderBandMm, dpi) / scale,
+      barMaxWPx: mmToPx(cfg.barMaxWMm, dpi) / scale,
+      barMinHPx: mmToPx(cfg.barMinHMm, dpi) / scale,
+      barOuterFrac: cfg.barOuterFrac
+    });
+    const scaleBox = (b) => ({
+      x: Math.round(b.x * scale),
+      y: Math.round(b.y * scale),
+      w: Math.round(b.w * scale),
+      h: Math.round(b.h * scale)
+    });
+    boxes[key] = bbox ? scaleBox(bbox) : null;
+    residue[key] = (residueBoxes || []).map(scaleBox);
+    io.done(cacheKey, { bbox: boxes[key], residueBoxes: residue[key] });
   }
 
   // Window: the fixed output page geometry all content is registered into.
@@ -83,8 +91,10 @@ export async function run(ctx, io) {
     let w;
     let h;
     if (ctx.cfg.assemble.pageSize === 'auto') {
-      w = Math.round(median(statKeys.map((k) => boxes[k].w))) + 2 * mmToPx(cfg.marginSideMm, dpi);
-      h = Math.round(median(statKeys.map((k) => boxes[k].h))) + topPx + mmToPx(cfg.marginBottomMm, dpi);
+      // 90th percentile: the window must fit full body pages, while ignoring
+      // a stray outlier (e.g. residue that escaped cleanup on one page).
+      w = Math.round(percentile(statKeys.map((k) => boxes[k].w), 0.9)) + 2 * mmToPx(cfg.marginSideMm, dpi);
+      h = Math.round(percentile(statKeys.map((k) => boxes[k].h), 0.9)) + topPx + mmToPx(cfg.marginBottomMm, dpi);
     } else {
       ({ w, h } = parsePageSize(ctx.cfg.assemble.pageSize, dpi));
     }
@@ -110,6 +120,37 @@ export async function run(ctx, io) {
     const srcPath = path.join(srcDir, file);
     const outPath = path.join(io.dir, `${key}.png`);
     const bbox = boxes[key];
+
+    // Erase classified residue bars explicitly — they can overlap the
+    // content crop region.
+    let src = srcPath;
+    const bars = residue[key] || [];
+    if (bars.length && !isCover(key)) {
+      const barPad = mmToPx(1, dpi);
+      const meta = await sharp(srcPath).metadata();
+      src = await sharp(srcPath)
+        .composite(
+          bars.map((b) => {
+            const left = Math.max(0, b.x - barPad);
+            const top = Math.max(0, b.y - barPad);
+            return {
+              input: {
+                create: {
+                  width: Math.min(b.w + 2 * barPad, meta.width - left),
+                  height: Math.min(b.h + 2 * barPad, meta.height - top),
+                  channels: 3,
+                  background: '#ffffff'
+                }
+              },
+              left,
+              top
+            };
+          })
+        )
+        .png()
+        .toBuffer();
+    }
+
     if (isCover(key) && bbox) {
       // Full-bleed cover: crop to the content and fill the whole page window
       // edge to edge (same fitting the AI-recreated cover gets).
@@ -126,12 +167,19 @@ export async function run(ctx, io) {
         .png()
         .toFile(outPath);
     } else {
-      await registerToWindow({ src: srcPath, bbox, window, pad, outPath });
+      await registerToWindow({ src, bbox, window, pad, outPath });
     }
 
     if (ctx.debug) {
       const meta = await sharp(srcPath).metadata();
       const sw = 800 / meta.width;
+      const barRects = bars
+        .map(
+          (b) =>
+            `<rect x="${b.x * sw}" y="${b.y * sw}" width="${b.w * sw}" height="${b.h * sw}"
+              fill="orange" fill-opacity="0.5" stroke="orange" stroke-width="2"/>`
+        )
+        .join('');
       const svg = bbox
         ? `<svg width="${Math.round(meta.width * sw)}" height="${Math.round(meta.height * sw)}" xmlns="http://www.w3.org/2000/svg">
             <rect x="0" y="0" width="100%" height="100%" fill="red" fill-opacity="0.25"/>
@@ -139,6 +187,7 @@ export async function run(ctx, io) {
               fill="white" fill-opacity="0" stroke="red" stroke-width="3"/>
             <rect x="${(bbox.x - pad) * sw}" y="${(bbox.y - pad) * sw}" width="${(bbox.w + 2 * pad) * sw}" height="${(bbox.h + 2 * pad) * sw}"
               fill="#ffffff" fill-opacity="0.0" stroke="#00c000" stroke-width="2" stroke-dasharray="8 6"/>
+            ${barRects}
           </svg>`
         : null;
       const annotated = sharp(srcPath).resize(800).toColourspace('srgb');
@@ -150,7 +199,7 @@ export async function run(ctx, io) {
           title: 'content box (red=erased zone)'
         },
         { input: outPath, title: 'registered page' }
-      ], { meta: { bbox } });
+      ], { meta: { bbox, residueBars: bars.length } });
     }
 
     io.done(key);

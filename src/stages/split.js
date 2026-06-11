@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import sharp from 'sharp';
 import { stageDir } from '../config.js';
 import { toGrayRaw, detectGutter } from '../img/projection.js';
+import { mmToPx } from '../img/geometry.js';
 import { pageKey } from '../util/pages.js';
 import { log } from '../util/log.js';
 
@@ -26,7 +27,10 @@ export async function run(ctx, io) {
     const srcPath = path.join(srcDir, file);
     const meta = await sharp(srcPath).metadata();
     const raw = await toGrayRaw(srcPath, { maxDim: ANALYSIS_MAX_DIM });
-    const gutter = detectGutter(raw, ctx.cfg.split);
+    const gutter = detectGutter(raw, {
+      ...ctx.cfg.split,
+      minRunPx: Math.max(2, (mmToPx(ctx.cfg.split.minGutterRunMm, ctx.cfg.dpi) * raw.width) / meta.width)
+    });
     const splitX = Math.round((gutter.x / raw.width) * meta.width);
 
     for (const [side, region] of [
