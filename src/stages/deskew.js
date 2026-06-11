@@ -62,15 +62,6 @@ export async function run(ctx, io) {
       continue;
     }
     const srcPath = path.join(srcDir, file);
-    // Full-bleed covers: dark-pixel projection profiles are meaningless on
-    // white-on-black artwork — pass through unchanged.
-    if (key.startsWith('page-0001')) {
-      await fs.copyFile(srcPath, path.join(io.dir, file));
-      angles[key] = 0;
-      io.done(key, { angle: 0, cover: true });
-      log.stage('deskew', `${key}: cover, passed through`);
-      continue;
-    }
     const meta = await sharp(srcPath).metadata();
     const analysisMaxDim = Math.max(
       200,
@@ -87,7 +78,7 @@ export async function run(ctx, io) {
       Math.abs(angle) < 0.01
         ? sharp(srcPath)
         : await rotateGray(srcPath, -angle, meta);
-    const straightPng = await straight.grayscale().png().toBuffer();
+    const straightPng = await straight.toColourspace('b-w').png().toBuffer();
 
     // Re-register the straightened content into the window.
     const regRaw = await toGrayRaw(straightPng, { maxDim: ctx.cfg.preclean.analysisMaxDim });

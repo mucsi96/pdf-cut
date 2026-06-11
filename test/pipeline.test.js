@@ -84,14 +84,17 @@ test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 
   ];
   await execa('node', processArgs, { cwd: ROOT });
 
-  // Output structure: front cover + 2 inner scans x 2 pages = 5 pages.
+  // Output structure: 2 inner scans x 2 pages = 4 pages; the cover lives in
+  // its own PDF (offline mode falls back to the original scan image).
   const { stdout: info } = await execa('pdfinfo', [out]);
-  assert.match(info, /^Pages:\s+5$/m, info);
+  assert.match(info, /^Pages:\s+4$/m, info);
+  const coverPdf = out.replace(/\.pdf$/, '-cover.pdf');
+  const { stdout: coverInfo } = await execa('pdfinfo', [coverPdf]);
+  assert.match(coverInfo, /^Pages:\s+1$/m, coverInfo);
 
-  // Inner pages must be 1-bit CCITT G4.
+  // Inner pages are grayscale, embedded losslessly.
   const { stdout: images } = await execa('pdfimages', ['-list', out]);
-  assert.match(images, /ccitt/, images);
-  assert.match(images, /\s1\s+1\s/, 'expected a 1-bit 1-component image');
+  assert.match(images, /gray/, images);
 
   // Deskew must recover the injected angles.
   const angles = JSON.parse(await fs.readFile(path.join(workdir, '05-deskew/angles.json'), 'utf8'));
@@ -110,8 +113,8 @@ test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 
   // Residue must be fully erased: the fixture places detached binding-shadow
   // bars next to the gutter; the inner-edge strips of the output pages must
   // be pure white.
-  for (const [file, fromRight] of [['page-0002-L.tif', true], ['page-0002-R.tif', false]]) {
-    const { data, info } = await sharp(path.join(workdir, '06-binarize', file))
+  for (const [file, fromRight] of [['page-0002-L.png', true], ['page-0002-R.png', false]]) {
+    const { data, info } = await sharp(path.join(workdir, '05-deskew', file))
       .grayscale()
       .raw()
       .toBuffer({ resolveWithObject: true });
@@ -131,7 +134,7 @@ test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 
   // require ink above it in the left 40% of the page (page number + header
   // text; punch holes live far right and are excluded).
   {
-    const { data, info } = await sharp(path.join(workdir, '06-binarize/page-0002-L.tif'))
+    const { data, info } = await sharp(path.join(workdir, '05-deskew/page-0002-L.png'))
       .grayscale()
       .raw()
       .toBuffer({ resolveWithObject: true });
@@ -187,7 +190,7 @@ test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 
 
   // Re-run: everything resumes from manifests, nothing is rebuilt.
   const second = await execa('node', processArgs, { cwd: ROOT });
-  for (const stage of ['rasterize', 'split', 'deskew', 'preclean', 'binarize']) {
+  for (const stage of ['rasterize', 'split', 'preclean', 'inpaint', 'deskew']) {
     assert.match(second.stdout, new RegExp(`\\[${stage}\\] done \\(all items up to date\\)`));
   }
 

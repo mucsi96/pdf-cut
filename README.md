@@ -17,9 +17,10 @@ Turn a 2-up scanned book PDF into a print-quality, one-page-per-page PDF:
    already-cleaned, hole-free pages; illustrations are excluded from the projection so their
    diagonal strokes cannot out-vote the text lines; one high-quality grayscale rotation, then the
    straightened content is re-registered
-7. **binarize** — adaptive threshold → crisp 1-bit pages, despeckled, CCITT G4 TIFF
-8. **cover** *(AI)* — Gemini 3 Pro Image recreates the cover in full color (4K)
-9. **assemble** — `img2pdf` embeds the G4 TIFFs losslessly at the exact physical page size
+7. **cover** *(AI)* — the cover scan (scan 1) never enters the book pipeline: Gemini 3 Pro
+   Image recreates the WHOLE cover (back + spine + front) as one full-color image (4K) and it
+   is written to its own separate PDF (default `<out>-cover.pdf`)
+8. **assemble** — `img2pdf` embeds the grayscale pages losslessly at the exact physical page size
 
 Every stage is resumable: intermediates live in `work/NN-<stage>/` with manifests, so re-runs
 only redo what changed. `--force <stage>` rebuilds a stage and everything after it.
@@ -44,9 +45,9 @@ podman run --rm -v "$PWD":/data pdf-cut \
 podman run --rm -v "$PWD":/data --env-file .env pdf-cut \
   process /data/input.pdf --pages 1-3 --workdir /data/work --out /data/out.pdf --debug
 
-# Full book including color cover recreation (front + back):
+# Full book (book pages → out.pdf, color cover → out-cover.pdf):
 podman run --rm -v "$PWD":/data --env-file .env pdf-cut \
-  process /data/input.pdf --workdir /data/work --out /data/out.pdf --back-cover
+  process /data/input.pdf --workdir /data/work --out /data/out.pdf
 
 # Cover only:
 podman run --rm -v "$PWD":/data --env-file .env pdf-cut \
@@ -64,11 +65,12 @@ test a page range offline or with AI, cover only, open the debug report.
 | Flag | Meaning |
 |---|---|
 | `--pages 1-3,7` | process only these scan pages |
-| `--skip-ai` | offline mode: skip analyze/inpaint/cover |
+| `--skip-ai` | no remote AI: skip vision QA, cover PDF uses the original scan (LaMa hole-fill still runs — it is local) |
 | `--from/--to <stage>` | run part of the pipeline |
 | `--force <stage>` | rebuild a stage (and downstream) after tuning |
 | `--page-size auto\|A5\|148x210mm` | physical output page size (auto = derived from content) |
-| `--back-cover` | also recreate the back cover as the last page |
+| `--no-cover` | treat scan 1 as a regular 2-up spread, not a cover |
+| `--cover-out file.pdf` | where to write the cover PDF (default `<out>-cover.pdf`) |
 | `--swap-order` | right page before left page (other binding direction) |
 | `--vision-provider gemini\|anthropic` | analysis model provider |
 | `--dpi 600` | rasterization DPI (use the scan's native resolution) |
@@ -79,15 +81,15 @@ test a page range offline or with AI, cover only, open the debug report.
 Run with `--debug`, then open `work/debug/index.html`. Every stage shows annotated
 overlays per page: detected gutter + projection profile, deskew before/after with the
 measured angle, the content box and erased residue zones, AI-reported hole boxes,
-patch/mask/AI-result/composite for each inpaint, grayscale-vs-1-bit comparison, and
-scan-vs-AI cover. Tweak thresholds in `src/config.js`, re-run with `--force <stage>`,
+before/mask/LaMa-result/composite for each filled hole, and scan-vs-AI cover. Tweak thresholds in `src/config.js`, re-run with `--force <stage>`,
 refresh the report.
 
 ## Notes
 
-- The first scan page is treated as the cover (left half = back, right half = front).
-  The cover is fully recreated by AI; with `--skip-ai` it falls back to the binarized scan.
+- The first scan page is treated as the cover. It is never split or processed as book pages:
+  the whole artwork (back + spine + front) is recreated by AI as ONE color image into its own
+  PDF; with `--skip-ai` the original scan image is used instead. `--no-cover` disables this.
 - API keys are never baked into the image — pass them with `--env-file .env`.
   Model IDs can be overridden via env vars (see `.env.example`).
-- Inner pages are emitted as 1-bit 600 DPI CCITT G4 — ideal for book printing and tiny files.
+- Book pages are emitted as 600 DPI grayscale, embedded losslessly into the PDF.
 - Tests: `npm test` (the E2E part needs poppler/imagemagick/img2pdf on the host).

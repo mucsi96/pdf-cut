@@ -9,7 +9,7 @@ export async function registerToWindow({ src, bbox, window, pad, outPath }) {
     create: { width: window.w, height: window.h, channels: 3, background: '#ffffff' }
   });
   if (!bbox) {
-    await canvas.removeAlpha().grayscale().png().toFile(outPath);
+    await canvas.removeAlpha().toColourspace('b-w').png().toFile(outPath);
     return;
   }
 
@@ -44,13 +44,14 @@ export async function registerToWindow({ src, bbox, window, pad, outPath }) {
         height: crop.bottom - crop.top
       })
       .toBuffer();
-    await canvas
+    // sharp applies composite after colourspace ops, so grayscale conversion
+    // must happen in a second pass or the output silently stays RGB.
+    const composed = await canvas
       .composite([{ input: content, left: dstX, top: dstY }])
-      .removeAlpha()
-      .grayscale()
       .png()
-      .toFile(outPath);
+      .toBuffer();
+    await sharp(composed).removeAlpha().toColourspace('b-w').png().toFile(outPath);
   } else {
-    await canvas.removeAlpha().grayscale().png().toFile(outPath);
+    await canvas.removeAlpha().toColourspace('b-w').png().toFile(outPath);
   }
 }

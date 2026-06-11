@@ -35,7 +35,7 @@
     {
       "label": "pdf-cut: full book (with AI)",
       "type": "shell",
-      "command": "podman run --rm -v ${workspaceFolder}:/data --env-file ${workspaceFolder}/.env pdf-cut process /data/input.pdf --workdir /data/work --out /data/out.pdf --back-cover --debug",
+      "command": "podman run --rm -v ${workspaceFolder}:/data --env-file ${workspaceFolder}/.env pdf-cut process /data/input.pdf --workdir /data/work --out /data/out.pdf --debug",
       "dependsOn": ["pdf-cut: build image"],
       "problemMatcher": []
     },

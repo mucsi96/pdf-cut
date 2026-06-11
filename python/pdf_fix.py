@@ -255,7 +255,7 @@ def op_holes(items, args):
                 debug_prefix=item.get("debugPrefix")
             )
             img = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(item["output"], img)
+        cv2.imwrite(item["output"], cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
         print(json.dumps({
             "key": item["key"],
             "holes": [{"x": b[0], "y": b[1], "w": b[2], "h": b[3]} for b in boxes]

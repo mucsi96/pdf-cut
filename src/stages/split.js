@@ -10,7 +10,7 @@ import { log } from '../util/log.js';
 export const aiStage = false;
 
 export function params(ctx) {
-  return { dpi: ctx.cfg.dpi, split: ctx.cfg.split };
+  return { dpi: ctx.cfg.dpi, split: ctx.cfg.split, noCover: Boolean(ctx.opts.noCover) };
 }
 
 const ANALYSIS_MAX_DIM = 2000;
@@ -23,6 +23,15 @@ export async function run(ctx, io) {
     const scanNum = Number(file.match(/\d{4}/)[0]);
     const key = `scan-${file.match(/\d{4}/)[0]}`;
     if (io.isDone(key)) continue;
+
+    // Scan 1 is the cover: it is not a 2-up book spread but a single piece of
+    // artwork (back + spine + front). It bypasses the whole book pipeline and
+    // is handled exclusively by the cover stage.
+    if (scanNum === 1 && !ctx.opts.noCover) {
+      io.done(key, { cover: true });
+      log.stage('split', `${key}: cover — left to the cover stage`);
+      continue;
+    }
 
     const srcPath = path.join(srcDir, file);
     const meta = await sharp(srcPath).metadata();

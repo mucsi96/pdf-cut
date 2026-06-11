@@ -15,12 +15,9 @@ export function params(ctx) {
   return {
     dpi: ctx.cfg.dpi,
     preclean: ctx.cfg.preclean,
-    pageSize: ctx.cfg.assemble.pageSize,
-    coverFullBleed: true
+    pageSize: ctx.cfg.assemble.pageSize
   };
 }
-
-const isCover = (key) => key.startsWith('page-0001');
 
 function parsePageSize(spec, dpi) {
   if (spec === 'A5') return { w: mmToPx(148, dpi), h: mmToPx(210, dpi) };
@@ -52,7 +49,7 @@ export async function run(ctx, io) {
     const scale = meta.width / raw.width;
     const { bbox, residueBoxes } = analyzeContent(raw, {
       ...cfg,
-      removeEdgeConnected: !isCover(key),
+      removeEdgeConnected: true,
       borderBandXPx: mmToPx(cfg.borderBandSideMm, dpi) / scale,
       borderBandYPx: mmToPx(cfg.borderBandTopBottomMm, dpi) / scale,
       barMaxWPx: mmToPx(cfg.barMaxWMm, dpi) / scale,
@@ -79,8 +76,7 @@ export async function run(ctx, io) {
       residue[key] = io.manifest.items[cacheKey].residueBoxes || [];
       continue;
     }
-    // Covers are full-bleed: residue removal must not run on them at all.
-    if (usePython && !isCover(key)) {
+    if (usePython) {
       pendingClean.push({ key, file });
     } else {
       await jsAnalyze(path.join(srcDir, file), key);
@@ -123,15 +119,12 @@ export async function run(ctx, io) {
   }
 
   // Window: the fixed output page geometry all content is registered into.
-  // The cover scan (0001) is excluded from the statistics — it is full-bleed
-  // and would skew the content-size medians; it gets clipped/centered instead.
-  const innerKeys = Object.keys(boxes).filter((k) => boxes[k] && !k.startsWith('page-0001'));
-  const statKeys = innerKeys.length > 0 ? innerKeys : Object.keys(boxes).filter((k) => boxes[k]);
+  const statKeys = Object.keys(boxes).filter((k) => boxes[k]);
 
   let window = io.manifest.window;
   if (statKeys.length === 0) {
-    // Nothing measurable (e.g. cover-only run on a full-bleed cover): fall
-    // back to the raw split-page geometry.
+    // Nothing measurable (blank pages only): fall back to the raw split-page
+    // geometry.
     if (!window) {
       const meta = await sharp(path.join(srcDir, pages[0])).metadata();
       window = { w: meta.width, h: meta.height, topPx: mmToPx(cfg.marginTopMm, dpi), statPages: 0 };
@@ -186,7 +179,7 @@ export async function run(ctx, io) {
     // Erase classified hairline bars explicitly — they can overlap the
     // content crop region.
     const bars = residue[key] || [];
-    if (bars.length && !isCover(key)) {
+    if (bars.length) {
       const barPad = mmToPx(1, dpi);
       const meta = await sharp(src).metadata();
       src = await sharp(src)
@@ -212,24 +205,7 @@ export async function run(ctx, io) {
         .toBuffer();
     }
 
-    if (isCover(key) && bbox) {
-      // Full-bleed cover: crop to the content and fill the whole page window
-      // edge to edge (same fitting the AI-recreated cover gets).
-      const meta = await sharp(srcPath).metadata();
-      await sharp(srcPath)
-        .extract({
-          left: Math.max(0, bbox.x),
-          top: Math.max(0, bbox.y),
-          width: Math.min(bbox.w, meta.width - bbox.x),
-          height: Math.min(bbox.h, meta.height - bbox.y)
-        })
-        .resize(window.w, window.h, { fit: 'cover', position: 'centre' })
-        .grayscale()
-        .png()
-        .toFile(outPath);
-    } else {
-      await registerToWindow({ src, bbox, window, pad, outPath });
-    }
+    await registerToWindow({ src, bbox, window, pad, outPath });
 
     if (ctx.debug) {
       const meta = await sharp(srcPath).metadata();

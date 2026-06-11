@@ -16,7 +16,8 @@ function addCommonOptions(cmd) {
     .option('--skip-ai', 'skip all AI stages (analyze/inpaint/cover) — offline mode', false)
     .option('--force <stages>', 'comma-separated stages to rebuild (with downstream)', (v) => v.split(','))
     .option('--page-size <size>', 'physical page size: auto, A4, A5 or WxHmm', 'auto')
-    .option('--back-cover', 'also AI-recreate the back cover as the last page', false)
+    .option('--no-cover', 'treat scan 1 as a regular 2-up spread instead of the cover')
+    .option('--cover-out <file>', 'output PDF for the recreated cover (default: <out>-cover.pdf)')
     .option('--swap-order', 'emit right page before left page per scan', false)
     .addOption(new Option('--vision-provider <p>', 'vision model provider').choices(['gemini', 'anthropic']).default('gemini'))
     .option('--concurrency <n>', 'parallel AI requests', '4')
@@ -50,6 +51,15 @@ function checkKeys(opts, range) {
   }
 }
 
+function coverOutFor(opts) {
+  return opts.coverOut || `${opts.out.replace(/\.pdf$/i, '')}-cover.pdf`;
+}
+
+// commander turns --no-cover into opts.cover === false.
+function normalizeOpts(opts) {
+  return { ...opts, noCover: opts.cover === false, coverOut: coverOutFor(opts) };
+}
+
 async function execute(fn) {
   try {
     await fn();
@@ -73,7 +83,7 @@ addCommonOptions(
 ).action((input, opts) =>
   execute(async () => {
     checkKeys(opts, { from: opts.from, to: opts.to });
-    await runPipeline({ ...opts, input: path.resolve(input) });
+    await runPipeline({ ...normalizeOpts(opts), input: path.resolve(input) });
   })
 );
 
@@ -86,23 +96,23 @@ addCommonOptions(
 ).action((name, input, opts) =>
   execute(async () => {
     checkKeys(opts, { from: name, to: name });
-    await runPipeline({ ...opts, input: path.resolve(input), from: name, to: name });
+    await runPipeline({ ...normalizeOpts(opts), input: path.resolve(input), from: name, to: name });
   })
 );
 
 addCommonOptions(
   program
     .command('cover')
-    .description('process only the cover scan and AI-recreate the cover')
+    .description('AI-recreate the cover (scan 1) into its own PDF')
     .argument('<input>', 'input scanned PDF')
 ).action((input, opts) =>
   execute(async () => {
     const pipelineOpts = {
-      ...opts,
+      ...normalizeOpts(opts),
       input: path.resolve(input),
       pages: opts.pages || '1',
       to: 'cover',
-      skipStages: ['analyze', 'inpaint', 'deskew', 'binarize']
+      skipStages: ['split', 'preclean', 'analyze', 'inpaint', 'deskew']
     };
     checkKeys(pipelineOpts, { to: 'cover' });
     await runPipeline(pipelineOpts);

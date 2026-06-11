@@ -11,48 +11,31 @@ export function params(ctx) {
   return {
     dpi: ctx.cfg.dpi,
     swapOrder: Boolean(ctx.opts.swapOrder),
-    backCover: Boolean(ctx.opts.backCover),
-    skipAi: Boolean(ctx.opts.skipAi),
     out: ctx.opts.out,
     window: ctx.window || null
   };
 }
 
-async function exists(p) {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
+// Assemble the book pages (the cover lives in its own PDF, see the cover
+// stage). Grayscale PNGs are embedded losslessly by img2pdf.
 export async function run(ctx, io) {
-  const binDir = stageDir(ctx.workdir, 'binarize');
-  const coverDir = stageDir(ctx.workdir, 'cover');
-  const tifs = (await fs.readdir(binDir)).filter((f) => /^page-\d{4}-[LR]\.tif$/.test(f)).sort();
-  if (tifs.length === 0) throw new Error('assemble: no binarized pages found');
+  const srcDir = stageDir(ctx.workdir, 'deskew');
+  const pngs = (await fs.readdir(srcDir)).filter((f) => /^page-\d{4}-[LR]\.png$/.test(f)).sort();
+  if (pngs.length === 0) throw new Error('assemble: no processed pages found');
 
-  const scans = [...new Set(tifs.map((f) => Number(f.match(/\d{4}/)[0])))].sort((a, b) => a - b);
+  const scans = [...new Set(pngs.map((f) => Number(f.match(/\d{4}/)[0])))].sort((a, b) => a - b);
   const sides = ctx.opts.swapOrder ? ['R', 'L'] : ['L', 'R'];
-  const pageFile = (scan, side) => path.join(binDir, `page-${String(scan).padStart(4, '0')}-${side}.tif`);
-
   const files = [];
-  const hasCoverScan = scans.includes(1);
-  if (hasCoverScan) {
-    const aiFront = path.join(coverDir, 'front.jpg');
-    files.push((await exists(aiFront)) ? aiFront : pageFile(1, 'R'));
-  }
   for (const scan of scans) {
-    if (scan === 1) continue;
     for (const side of sides) {
-      const f = pageFile(scan, side);
-      if (await exists(f)) files.push(f);
+      const f = path.join(srcDir, `page-${String(scan).padStart(4, '0')}-${side}.png`);
+      try {
+        await fs.access(f);
+        files.push(f);
+      } catch {
+        // half page missing (partial run) — skip
+      }
     }
-  }
-  if (hasCoverScan && ctx.opts.backCover) {
-    const aiBack = path.join(coverDir, 'back.jpg');
-    files.push((await exists(aiBack)) ? aiBack : pageFile(1, 'L'));
   }
 
   const win = ctx.window;

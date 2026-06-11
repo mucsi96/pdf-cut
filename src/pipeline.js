@@ -10,11 +10,10 @@ import * as deskew from './stages/deskew.js';
 import * as preclean from './stages/preclean.js';
 import * as analyze from './stages/analyze.js';
 import * as inpaint from './stages/inpaint.js';
-import * as binarize from './stages/binarize.js';
 import * as cover from './stages/cover.js';
 import * as assemble from './stages/assemble.js';
 
-const STAGES = { rasterize, split, deskew, preclean, analyze, inpaint, binarize, cover, assemble };
+const STAGES = { rasterize, split, deskew, preclean, analyze, inpaint, cover, assemble };
 
 export function resolveStageName(name) {
   if (!STAGE_NAMES.includes(name)) {
