@@ -154,6 +154,34 @@ test('offline end-to-end pipeline on the synthetic fixture', { timeout: 600_000 
     assert.ok(inkAboveRule > 30, `page number above the header was erased (ink=${inkAboveRule}, ruleY=${ruleY})`);
   }
 
+  // Punch-hole inpainting (only when the OpenCV/LaMa toolchain is present):
+  // the in-text hole on page-0002-L must be detected and actually filled.
+  const { pythonAvailable } = await import('../src/util/pythonStage.js');
+  if (await pythonAvailable({ needLama: true })) {
+    const manifest = JSON.parse(
+      await fs.readFile(path.join(workdir, '04-inpaint/manifest.json'), 'utf8')
+    );
+    const item = manifest.items['page-0002-L'];
+    assert.ok(item && item.holes >= 1, `expected >=1 filled hole, got ${JSON.stringify(item)}`);
+    const box = item.boxes[0];
+    const { data, info } = await sharp(path.join(workdir, '04-inpaint/page-0002-L.png'))
+      .extract({
+        left: Math.max(0, box.x),
+        top: Math.max(0, box.y),
+        width: box.w,
+        height: box.h
+      })
+      .grayscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    let dark = 0;
+    for (let i = 0; i < info.width * info.height; i++) {
+      if (data[i * info.channels] < 100) dark++;
+    }
+    const frac = dark / (info.width * info.height);
+    assert.ok(frac < 0.3, `hole region still ${(frac * 100).toFixed(0)}% dark after LaMa`);
+  }
+
   // Debug report exists.
   await fs.access(path.join(workdir, 'debug/index.html'));
 

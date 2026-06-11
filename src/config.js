@@ -4,14 +4,12 @@ export const defaults = {
   dpi: 600,
 
   models: {
-    // Vision analysis (hole detection / QA), structured JSON output.
+    // Vision analysis (QA pass), structured JSON output.
     vision: process.env.PDFCUT_VISION_MODEL || 'gemini-2.5-flash',
     // Anthropic fallback for --vision-provider anthropic.
     anthropicVision: process.env.PDFCUT_ANTHROPIC_VISION_MODEL || 'claude-sonnet-4-6',
     // Color cover recreation. Model IDs churn; override via env when needed.
-    cover: process.env.PDFCUT_COVER_MODEL || 'gemini-3-pro-image-preview',
-    // Mask-based inpainting for punch holes.
-    inpaint: process.env.PDFCUT_INPAINT_MODEL || 'gpt-image-1'
+    cover: process.env.PDFCUT_COVER_MODEL || 'gemini-3-pro-image-preview'
   },
 
   split: {
@@ -33,16 +31,34 @@ export const defaults = {
     fineStepDeg: 0.02,
     // Skew is measured on a downscale at this DPI (fast, plenty accurate).
     analysisDpi: 100,
-    darkThreshold: 128
+    darkThreshold: 128,
+    // Components larger than this in BOTH dimensions (illustrations, photos)
+    // are excluded from the projection profile: their diagonal strokes would
+    // otherwise out-vote the text lines and rotate the page the wrong way.
+    excludeLargeMm: 10
   },
 
   preclean: {
-    // Downscale factor for border-connected residue detection.
+    // Downscale factor for border-connected residue detection (JS fallback).
     analysisMaxDim: 1200,
     darkThreshold: 160,
     // Rows/cols need at least this many dark px (at analysis scale) to count
     // as content when computing the content bounding box.
     minInkPx: 3,
+    // --- OpenCV residue detection (python helper; preferred path) ---
+    // Masses thicker than this survive the morphological opening; thin text
+    // strokes vanish, so residue never drags touching text along.
+    // Mid-gray scanner streaks must count as dark, hence the high threshold;
+    // only masses thicker than residueThickMm can become residue anyway.
+    residueThreshold: 160,
+    residueThickMm: 1.5,
+    residueMinMm: 4,
+    residueBigMm: 12,
+    residueAspect: 3,
+    residuePadMm: 1,
+    glyphMinMm: 0.6,
+    marginPadMm: 3,
+    // --- JS fallback (no python available) ---
     // Residue removal erases dark regions touching (or lying within) a band
     // from the page edge. Sides get a wide band (binding shadows, slivers of
     // the neighbor page); top/bottom must stay small because running headers
@@ -76,11 +92,16 @@ export const defaults = {
   },
 
   inpaint: {
-    patchSize: 1024,
-    // Hole boxes are dilated by this many px before masking.
-    dilatePx: 20,
-    featherPx: 8,
-    quality: 'high'
+    // OpenCV punch-hole detection: solid round dark blobs in this physical
+    // size range, scored by circularity/solidity; filled locally with LaMa.
+    holeMinMm: 3,
+    holeMaxMm: 10,
+    holeCircularity: 0.6,
+    holeSolidity: 0.85,
+    holeDilate: 0.25,
+    darkThreshold: 80,
+    // Context handed to LaMa around each hole.
+    contextMm: 8
   },
 
   analyze: {

@@ -6,6 +6,7 @@ import { toGrayRaw } from '../img/projection.js';
 import { analyzeContent } from '../img/content.js';
 import { registerToWindow } from '../img/register.js';
 import { mmToPx, percentile } from '../img/geometry.js';
+import { pythonAvailable, runPythonOp } from '../util/pythonStage.js';
 import { log } from '../util/log.js';
 
 export const aiStage = false;
@@ -35,23 +36,20 @@ export async function run(ctx, io) {
   const srcDir = stageDir(ctx.workdir, 'split');
   const pages = (await fs.readdir(srcDir)).filter((f) => /^page-\d{4}-[LR]\.png$/.test(f)).sort();
 
-  // Pass A: content bounding boxes (residue-free), cached in the manifest.
+  // Pass A: residue removal + content bounding boxes, cached in the manifest.
+  // Preferred path: OpenCV (python helper) — a morphological opening isolates
+  // residue as solid masses painted white in place, so touching text is never
+  // dragged along; the content box comes from glyph-sized components.
+  // Fallback: JS border-band flood fill + bar classifier.
+  const usePython = await pythonAvailable();
   const boxes = {};
   const residue = {};
-  for (const file of pages) {
-    const key = file.replace('.png', '');
-    const cacheKey = `bbox:${key}`;
-    if (io.manifest.items[cacheKey]) {
-      boxes[key] = io.manifest.items[cacheKey].bbox;
-      residue[key] = io.manifest.items[cacheKey].residueBoxes || [];
-      continue;
-    }
-    const srcPath = path.join(srcDir, file);
-    const meta = await sharp(srcPath).metadata();
-    const raw = await toGrayRaw(srcPath, { maxDim: cfg.analysisMaxDim });
+
+  // Content box + hairline-bar detection on a (possibly pre-cleaned) page.
+  const jsAnalyze = async (filePath, key, extraMeta = {}) => {
+    const meta = await sharp(filePath).metadata();
+    const raw = await toGrayRaw(filePath, { maxDim: cfg.analysisMaxDim });
     const scale = meta.width / raw.width;
-    // Covers are full-bleed: their content touches the border, so the
-    // border-connected residue removal must not run on them.
     const { bbox, residueBoxes } = analyzeContent(raw, {
       ...cfg,
       removeEdgeConnected: !isCover(key),
@@ -69,7 +67,59 @@ export async function run(ctx, io) {
     });
     boxes[key] = bbox ? scaleBox(bbox) : null;
     residue[key] = (residueBoxes || []).map(scaleBox);
-    io.done(cacheKey, { bbox: boxes[key], residueBoxes: residue[key] });
+    io.done(`bbox:${key}`, { bbox: boxes[key], residueBoxes: residue[key], ...extraMeta });
+  };
+
+  const pendingClean = [];
+  for (const file of pages) {
+    const key = file.replace('.png', '');
+    const cacheKey = `bbox:${key}`;
+    if (io.manifest.items[cacheKey]) {
+      boxes[key] = io.manifest.items[cacheKey].bbox;
+      residue[key] = io.manifest.items[cacheKey].residueBoxes || [];
+      continue;
+    }
+    // Covers are full-bleed: residue removal must not run on them at all.
+    if (usePython && !isCover(key)) {
+      pendingClean.push({ key, file });
+    } else {
+      await jsAnalyze(path.join(srcDir, file), key);
+    }
+  }
+
+  // OpenCV pass: paint thick residue masses white IN PLACE (the morphological
+  // opening cannot drag touching text along). The JS analysis then runs on
+  // the cleaned image, where the border flood can no longer leak into text
+  // and only hairline bars are left for the stroke-width classifier.
+  if (pendingClean.length) {
+    log.stage('preclean', `OpenCV residue removal on ${pendingClean.length} page(s)`);
+    const results = await runPythonOp(
+      'clean',
+      pendingClean.map((p) => ({
+        key: p.key,
+        input: path.join(srcDir, p.file),
+        output: path.join(io.dir, `${p.key}.clean.png`)
+      })),
+      {
+        dpi,
+        'residue-threshold': cfg.residueThreshold,
+        'residue-thick-mm': cfg.residueThickMm,
+        'residue-min-mm': cfg.residueMinMm,
+        'residue-big-mm': cfg.residueBigMm,
+        'residue-aspect': cfg.residueAspect,
+        'residue-pad-mm': cfg.residuePadMm,
+        'glyph-min-mm': cfg.glyphMinMm,
+        'margin-pad-mm': cfg.marginPadMm
+      }
+    );
+    for (const { key } of pendingClean) {
+      const r = results.get(key);
+      if (!r) throw new Error(`preclean: python helper returned no result for ${key}`);
+      await jsAnalyze(path.join(io.dir, `${key}.clean.png`), key, {
+        cleaned: true,
+        paintedPx: r.paintedPx
+      });
+    }
   }
 
   // Window: the fixed output page geometry all content is registered into.
@@ -122,14 +172,24 @@ export async function run(ctx, io) {
     const outPath = path.join(io.dir, `${key}.png`);
     const bbox = boxes[key];
 
-    // Erase classified residue bars explicitly — they can overlap the
-    // content crop region.
+    // Prefer the OpenCV-cleaned page (residue painted white in place).
     let src = srcPath;
+    if (io.manifest.items[`bbox:${key}`]?.cleaned) {
+      const cleanPath = path.join(io.dir, `${key}.clean.png`);
+      try {
+        await fs.access(cleanPath);
+        src = cleanPath;
+      } catch {
+        log.warn(`preclean: ${key}.clean.png missing — using uncleaned source`);
+      }
+    }
+    // Erase classified hairline bars explicitly — they can overlap the
+    // content crop region.
     const bars = residue[key] || [];
     if (bars.length && !isCover(key)) {
       const barPad = mmToPx(1, dpi);
-      const meta = await sharp(srcPath).metadata();
-      src = await sharp(srcPath)
+      const meta = await sharp(src).metadata();
+      src = await sharp(src)
         .composite(
           bars.map((b) => {
             const left = Math.max(0, b.x - barPad);

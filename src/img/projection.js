@@ -81,17 +81,90 @@ export function detectGutter(raw, { centerBandFraction, minValleyContrast, minRu
   return { x: Math.round(best.center), fallback: false, contrast, profile: col };
 }
 
-// Detect text skew via projection-profile variance maximization.
+// Otsu's threshold over an 8-bit grayscale buffer.
+export function otsuThreshold(data) {
+  const hist = new Float64Array(256);
+  for (let i = 0; i < data.length; i++) hist[data[i]]++;
+  const total = data.length;
+  let sum = 0;
+  for (let t = 0; t < 256; t++) sum += t * hist[t];
+  let sumB = 0;
+  let wB = 0;
+  let best = 127;
+  let maxVar = -1;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > maxVar) {
+      maxVar = between;
+      best = t;
+    }
+  }
+  return best;
+}
+
+// Drop ink belonging to components that are large in BOTH dimensions
+// (illustrations, photos): their diagonal strokes would out-vote the text
+// lines in the projection profile and rotate the page the wrong way.
+function dropLargeComponents(dark, width, height, maxPx) {
+  const visited = new Uint8Array(dark.length);
+  for (let start = 0; start < dark.length; start++) {
+    if (!dark[start] || visited[start]) continue;
+    const component = [start];
+    visited[start] = 1;
+    let minX = start % width;
+    let maxX = minX;
+    let minY = (start / width) | 0;
+    let maxY = minY;
+    for (let head = 0; head < component.length; head++) {
+      const i = component[head];
+      const x = i % width;
+      const y = (i / width) | 0;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      for (const m of [
+        x > 0 ? i - 1 : -1,
+        x < width - 1 ? i + 1 : -1,
+        y > 0 ? i - width : -1,
+        y < height - 1 ? i + width : -1
+      ]) {
+        if (m >= 0 && dark[m] && !visited[m]) {
+          visited[m] = 1;
+          component.push(m);
+        }
+      }
+    }
+    if (maxX - minX + 1 > maxPx && maxY - minY + 1 > maxPx) {
+      for (const i of component) dark[i] = 0;
+    }
+  }
+}
+
+// Detect text skew via projection-profile maximization (scored on the squared
+// differences of adjacent row sums — sharp text lines give a spiky profile).
 // Returns the angle in degrees to pass to a corrective rotation of -angle
 // (positive = image content is rotated counter-clockwise relative to level).
-export function detectSkew(raw, { maxAngleDeg, coarseStepDeg, fineStepDeg, darkThreshold }) {
+export function detectSkew(raw, { maxAngleDeg, coarseStepDeg, fineStepDeg, darkThreshold, excludeLargePx = 0 }) {
   const { data, width, height } = raw;
+  const thr = Math.min(otsuThreshold(data), darkThreshold + 64);
+  const dark = new Uint8Array(width * height);
+  for (let i = 0; i < dark.length; i++) dark[i] = data[i] < thr ? 1 : 0;
+  if (excludeLargePx > 0) dropLargeComponents(dark, width, height, excludeLargePx);
+
   const xs = [];
   const ys = [];
   for (let y = 0; y < height; y++) {
     const row = y * width;
     for (let x = 0; x < width; x++) {
-      if (data[row + x] < darkThreshold) {
+      if (dark[row + x]) {
         xs.push(x);
         ys.push(y);
       }
@@ -111,7 +184,10 @@ export function detectSkew(raw, { maxAngleDeg, coarseStepDeg, fineStepDeg, darkT
       hist[bin] += 1;
     }
     let s = 0;
-    for (let b = 0; b < maxBins; b++) s += hist[b] * hist[b];
+    for (let b = 1; b < maxBins; b++) {
+      const d = hist[b] - hist[b - 1];
+      s += d * d;
+    }
     return s;
   };
 

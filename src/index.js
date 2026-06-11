@@ -35,7 +35,6 @@ function requiredKeys(opts, { from, to } = {}) {
   if (inRange('analyze')) {
     keys.add(opts.visionProvider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'GEMINI_API_KEY');
   }
-  if (inRange('inpaint')) keys.add('OPENAI_API_KEY');
   if (inRange('cover')) keys.add('GEMINI_API_KEY');
   return [...keys];
 }

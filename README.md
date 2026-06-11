@@ -5,10 +5,18 @@ Turn a 2-up scanned book PDF into a print-quality, one-page-per-page PDF:
 1. **rasterize** — extracts each page's embedded scan bitmap losslessly at native resolution
    (`pdfimages`); falls back to `pdftoppm` rendering for non-single-image pages or with `--no-extract`
 2. **split** — gutter detection cuts each landscape scan into left/right book pages
-3. **preclean** — scanner residue connected to the page edge is erased; the content block of every page is registered to identical margins
-4. **analyze** *(AI)* — Gemini vision finds punch-hole damage (with the text it covers) and QA-checks every page
-5. **inpaint** *(AI)* — OpenAI `gpt-image-1` mask-inpaints each hole from a 1024×1024 context patch; only the masked pixels are composited back
-6. **deskew** — projection-profile skew detection (±3°, 0.02° precision) on the already-cleaned, hole-free pages; one high-quality grayscale rotation, then the straightened content is re-registered
+3. **preclean** — OpenCV residue removal: a morphological opening isolates thick dark masses
+   (binding shadows, edge bars) and paints them white *in place* — text strokes are thin and can
+   never be dragged along; hairline bars are caught by a stroke-width classifier; every page's
+   content block is then registered to identical margins
+4. **analyze** *(AI, optional)* — Gemini vision QA per page (quality flags, residual skew)
+5. **inpaint** *(local ML)* — OpenCV detects punch holes (solid round dark blobs in a physical
+   size range, scored by circularity/solidity) and **LaMa** inpaints a small crop around each —
+   only the masked pixels change; runs fully offline, no API key
+6. **deskew** — projection-profile skew detection (±3°, 0.02° precision, Otsu threshold) on the
+   already-cleaned, hole-free pages; illustrations are excluded from the projection so their
+   diagonal strokes cannot out-vote the text lines; one high-quality grayscale rotation, then the
+   straightened content is re-registered
 7. **binarize** — adaptive threshold → crisp 1-bit pages, despeckled, CCITT G4 TIFF
 8. **cover** *(AI)* — Gemini 3 Pro Image recreates the cover in full color (4K)
 9. **assemble** — `img2pdf` embeds the G4 TIFFs losslessly at the exact physical page size
@@ -19,8 +27,8 @@ only redo what changed. `--force <stage>` rebuilds a stage and everything after 
 ## Setup (WSL + podman)
 
 ```sh
-cp .env.example .env          # fill in GEMINI_API_KEY, OPENAI_API_KEY (ANTHROPIC_API_KEY optional)
-podman build -t pdf-cut .
+cp .env.example .env          # GEMINI_API_KEY for QA + cover (hole inpainting needs NO key)
+podman build -t pdf-cut .     # bundles OpenCV + CPU torch + LaMa weights — no runtime downloads
 ```
 
 Put your scanned book at `./input.pdf` (600 DPI scans, two book pages per landscape PDF page).

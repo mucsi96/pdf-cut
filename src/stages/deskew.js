@@ -14,7 +14,7 @@ export function params(ctx) {
   return {
     dpi: ctx.cfg.dpi,
     deskew: ctx.cfg.deskew,
-    source: ctx.opts.skipAi ? 'preclean' : 'inpaint',
+    source: 'inpaint',
     window: ctx.window || null
   };
 }
@@ -48,8 +48,7 @@ export async function rotateGray(input, deg, { width, height }) {
 // window — registration on still-skewed content (preclean) is only
 // approximate.
 export async function run(ctx, io) {
-  const sourceStage = ctx.opts.skipAi ? 'preclean' : 'inpaint';
-  const srcDir = stageDir(ctx.workdir, sourceStage);
+  const srcDir = stageDir(ctx.workdir, 'inpaint');
   const pages = (await fs.readdir(srcDir)).filter((f) => /^page-\d{4}-[LR]\.png$/.test(f)).sort();
   const win = ctx.window;
   if (!win) throw new Error('deskew: page window unknown (run preclean first)');
@@ -78,7 +77,10 @@ export async function run(ctx, io) {
       Math.round((Math.max(meta.width, meta.height) * ctx.cfg.deskew.analysisDpi) / ctx.cfg.dpi)
     );
     const raw = await toGrayRaw(srcPath, { maxDim: analysisMaxDim });
-    const { angle, inkPx } = detectSkew(raw, ctx.cfg.deskew);
+    const { angle, inkPx } = detectSkew(raw, {
+      ...ctx.cfg.deskew,
+      excludeLargePx: Math.round((ctx.cfg.deskew.excludeLargeMm / 25.4) * ctx.cfg.deskew.analysisDpi)
+    });
 
     const outPath = path.join(io.dir, file);
     const straight =
