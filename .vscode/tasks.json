@@ -1,0 +1,64 @@
+{
+  // Quick testing loop for WSL + podman. Put your scanned book at
+  // ./input.pdf and your API keys in ./.env (copy from .env.example).
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pdf-cut: build image",
+      "type": "shell",
+      "command": "podman build -t pdf-cut .",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "pdf-cut: generate test fixture",
+      "type": "shell",
+      "command": "podman run --rm -v ${workspaceFolder}:/data pdf-cut fixture --out /data/test-input.pdf --pages 4",
+      "dependsOn": ["pdf-cut: build image"],
+      "problemMatcher": []
+    },
+    {
+      "label": "pdf-cut: test pages (offline, no AI)",
+      "type": "shell",
+      "command": "podman run --rm -v ${workspaceFolder}:/data pdf-cut process /data/input.pdf --pages ${input:pages} --workdir /data/work --out /data/out.pdf --skip-ai --debug",
+      "dependsOn": ["pdf-cut: build image"],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "pdf-cut: test pages (with AI)",
+      "type": "shell",
+      "command": "podman run --rm -v ${workspaceFolder}:/data --env-file ${workspaceFolder}/.env pdf-cut process /data/input.pdf --pages ${input:pages} --workdir /data/work --out /data/out.pdf --debug",
+      "dependsOn": ["pdf-cut: build image"],
+      "problemMatcher": []
+    },
+    {
+      "label": "pdf-cut: full book (with AI)",
+      "type": "shell",
+      "command": "podman run --rm -v ${workspaceFolder}:/data --env-file ${workspaceFolder}/.env pdf-cut process /data/input.pdf --workdir /data/work --out /data/out.pdf --back-cover --debug",
+      "dependsOn": ["pdf-cut: build image"],
+      "problemMatcher": []
+    },
+    {
+      "label": "pdf-cut: cover only (with AI)",
+      "type": "shell",
+      "command": "podman run --rm -v ${workspaceFolder}:/data --env-file ${workspaceFolder}/.env pdf-cut cover /data/input.pdf --workdir /data/work --debug",
+      "dependsOn": ["pdf-cut: build image"],
+      "problemMatcher": []
+    },
+    {
+      "label": "pdf-cut: open debug report",
+      "type": "shell",
+      "command": "wslview ${workspaceFolder}/work/debug/index.html || xdg-open ${workspaceFolder}/work/debug/index.html || code ${workspaceFolder}/work/debug/index.html",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "pages",
+      "type": "promptString",
+      "description": "Scan page range to process (e.g. 1-3 or 1,5-7)",
+      "default": "1-3"
+    }
+  ]
+}
