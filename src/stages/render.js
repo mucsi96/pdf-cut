@@ -169,13 +169,16 @@ function buildDocument({ bodyHtml, toc, page, params, textWidthMm }) {
     ${params.author ? `<p class="book-author">${escapeHtml(params.author)}</p>` : ''}
   </div>\n`
     : '';
+  // the empty div takes one whole page: a calm blank verso between the TOC
+  // and the first chapter, like a real book
   const tocNav = tocItems
     ? `  <nav class="toc">
     <h1>${escapeHtml(params.tocTitle)}</h1>
     <ul>
 ${tocItems}
     </ul>
-  </nav>\n`
+  </nav>
+  <div class="page-blank"></div>\n`
     : '';
   const front = titlePage || tocNav ? `<section class="front">\n${titlePage}${tocNav}</section>\n` : '';
   return `<!DOCTYPE html>
@@ -205,14 +208,15 @@ function buildCss({ page, params }) {
   margin: ${mg.top}mm ${mg.outer}mm ${mg.bottom}mm ${mg.inner}mm;
   @top-center {
     content: string(chapter);
-    font-family: "${params.fontHeading}";
-    font-size: 8.5pt;
+    font-family: "${params.fontBody}", serif;
+    font-style: italic;
+    font-size: 9.5pt;
     letter-spacing: 0.06em;
   }
   @bottom-center {
     content: counter(page);
-    font-family: "${params.fontBody}";
-    font-size: 9.5pt;
+    font-family: "${params.fontBody}", serif;
+    font-size: 10pt;
   }
 }
 @page :left { margin: ${mg.top}mm ${mg.inner}mm ${mg.bottom}mm ${mg.outer}mm; }
@@ -221,7 +225,7 @@ function buildCss({ page, params }) {
   @bottom-center { content: none; }
 }
 
-html { font-family: "${params.fontBody}"; font-size: ${params.fontSizePt}pt; line-height: ${params.lineHeight}; }
+html { font-family: "${params.fontBody}", serif; font-size: ${params.fontSizePt}pt; line-height: ${params.lineHeight}; }
 body { margin: 0; text-align: justify; hyphens: auto; orphans: 2; widows: 2; }
 
 /* Page numbers are absolute (front matter counts silently, like a real
@@ -229,25 +233,28 @@ body { margin: 0; text-align: justify; hyphens: auto; orphans: 2; widows: 2; }
    from content, and a content-level reset would desync the TOC's
    target-counter() from the printed footer numbers. */
 section.front { page: front; }
+.page-blank { break-before: page; }
 
 /* classic book paragraphs: no gap, first-line indent except after a block */
 p { margin: 0; text-indent: 4.5mm; }
 p:first-child, h1 + p, h2 + p, h3 + p, h4 + p,
 figure + p, pre + p, table + p, ul + p, ol + p, blockquote + p { text-indent: 0; }
 
-h1, h2, h3, h4 { font-family: "${params.fontHeading}"; line-height: 1.2; text-align: left; hyphens: none; }
+/* the ZX Spectrum pixel face fills its whole em square, so heading sizes
+   run a step smaller than a normal text face would */
+h1, h2, h3, h4 { font-family: "${params.fontHeading}", "URW Gothic", sans-serif; line-height: 1.35; text-align: left; hyphens: none; }
 section.book-body h1 {
   break-before: ${params.chapterBreak};
   string-set: chapter content();
-  font-size: 21pt;
+  font-size: 17pt;
   margin: 14mm 0 9mm;
 }
-h2 { font-size: 13.5pt; margin: 5.5mm 0 2.8mm; break-after: avoid; }
-h3 { font-size: 11.5pt; margin: 4mm 0 2mm; break-after: avoid; }
-h4 { font-size: ${params.fontSizePt}pt; margin: 3mm 0 1.5mm; break-after: avoid; }
+h2 { font-size: 13pt; margin: 5.5mm 0 2.8mm; break-after: avoid; }
+h3 { font-size: 11pt; margin: 4mm 0 2mm; break-after: avoid; }
+h4 { font-size: 10pt; margin: 3mm 0 1.5mm; break-after: avoid; }
 
-code, pre, kbd { font-family: "${params.fontCode}"; hyphens: none; }
-code { font-size: 0.92em; }
+code, pre, kbd { font-family: "${params.fontCode}", monospace; hyphens: none; }
+code { font-size: 0.8em; }
 pre {
   font-size: ${params.codeFontSizePt}pt;
   line-height: 1.3;
@@ -260,7 +267,7 @@ pre code { font-size: inherit; }
 
 table { border-collapse: collapse; margin: 3mm auto; font-size: 0.92em; max-width: 100%; }
 th, td { border: 0.3pt solid #555; padding: 1mm 2.5mm; vertical-align: top; text-align: left; }
-th { font-family: "${params.fontHeading}"; }
+th { font-weight: bold; }
 
 figure { margin: 4mm auto; text-align: center; break-inside: avoid; }
 figure img { max-width: 100%; }
@@ -272,10 +279,10 @@ blockquote { margin: 2mm 0 2mm 5mm; font-style: italic; }
 hr { border: none; border-top: 0.3pt solid #555; margin: 4mm 20%; }
 
 .title-page { break-after: page; padding-top: 55mm; }
-.title-page .book-title { font-size: 26pt; margin: 0 0 9mm; text-align: center; }
-.title-page .book-author { font-family: "${params.fontHeading}"; font-size: 13pt; text-indent: 0; text-align: center; }
+.title-page .book-title { font-size: 22pt; margin: 0 0 9mm; text-align: center; }
+.title-page .book-author { font-family: "${params.fontHeading}", "URW Gothic", sans-serif; font-size: 12pt; text-indent: 0; text-align: center; }
 
-nav.toc h1 { font-size: 21pt; margin: 14mm 0 9mm; }
+nav.toc h1 { font-size: 17pt; margin: 14mm 0 9mm; }
 nav.toc ul { list-style: none; margin: 0; padding: 0; }
 nav.toc li { margin: 0.8mm 0; text-align: left; }
 nav.toc li.toc-1 { margin-top: 3.5mm; font-weight: bold; }

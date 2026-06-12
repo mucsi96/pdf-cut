@@ -211,17 +211,20 @@ export const DEFAULT_CONFIG = {
     ].join('\n'),
   },
   render: {
-    // Typography matched to the original: early-80s German computer books
-    // were phototypeset in a Times-like serif with Courier-style typewriter
-    // listings. The TeX Gyre faces are metric clones of exactly those
-    // (Termes = Times, Heros = Helvetica, Cursor = Courier) and are baked
-    // into the image (fonts-texgyre); any fontconfig family name works here.
-    fontBody: 'TeX Gyre Termes',
-    fontHeading: 'TeX Gyre Heros',
-    fontCode: 'TeX Gyre Cursor',
-    fontSizePt: 10.5,
-    lineHeight: 1.45,
-    codeFontSizePt: 9,
+    // Typography for a young reader with the right 80s flavor: URW Bookman is
+    // the free clone of ITC Bookman — the warm, wide, very legible face all
+    // over 1980s computer books and ideal for children's text. Headings and
+    // BASIC listings use the genuine Sinclair ZX Spectrum character set
+    // (public-domain TTF baked into the image), so listings look exactly like
+    // the Spectrum screen. Any fontconfig family name works here;
+    // "URW Gothic" (ITC Avant Garde clone) and the TeX Gyre faces are also
+    // installed as alternatives.
+    fontBody: 'URW Bookman',
+    fontHeading: 'ZX Spectrum',
+    fontCode: 'ZX Spectrum',
+    fontSizePt: 12.5,
+    lineHeight: 1.5,
+    codeFontSizePt: 10,
     // Physical page size in mm; "auto" measures the final cleaned scans
     // (pixels ÷ dpi) so the rendered book keeps the original trim size.
     pageWidthMm: 'auto',

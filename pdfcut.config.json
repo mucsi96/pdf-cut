@@ -70,9 +70,9 @@
     "figureModel": "gemini-3-pro-image"
   },
   "render": {
-    "fontBody": "TeX Gyre Termes",
-    "fontHeading": "TeX Gyre Heros",
-    "fontCode": "TeX Gyre Cursor",
+    "fontBody": "URW Bookman",
+    "fontHeading": "ZX Spectrum",
+    "fontCode": "ZX Spectrum",
     "title": "",
     "author": "",
     "chapterBreak": "page",

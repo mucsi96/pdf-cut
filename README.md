@@ -36,7 +36,7 @@ scanned two-pages-per-sheet at 600 DPI and produces:
 | 80 | `report` | static **HTML report**: every stage for every page side by side | `work/report.html` |
 | 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata | `pdfinfo` summary in the log |
 | 95 | `markdown` | **opt-in** (one Gemini call per page, never part of a default run): transcribes each cleaned page to GitHub-flavored Markdown — body text only (page numbers / running heads / front matter dropped), BASIC listings as ` ```basic ` fences, figures cropped from the full-res scan and recreated in color (`gemini-3-pro-image`) into `output/images/`, paragraphs/listings/tables stitched across page breaks → `output/book.md` | per-page raw model output + token usage, raw scan crops of the figures, `prompt.txt` |
-| 97 | `render` | **opt-in**: typesets `output/book.md` into `output/book-print.pdf` with WeasyPrint — TOC with leader dots + live page numbers, chapters on new pages, mirrored book margins with running head and page number, justified text with German hyphenation, figures at their original printed size | `book.html` (the exact typeset document), `weasyprint.log` |
+| 97 | `render` | **opt-in**: typesets `output/book.md` into `output/book-print.pdf` with WeasyPrint — TOC with leader dots + live page numbers followed by a blank page, chapters on new pages, mirrored book margins with running head and page number, justified text with German hyphenation, figures at their original printed size | `book.html` (the exact typeset document), `weasyprint.log` |
 
 Every stage writes its results to its own `work/NN-stage/` directory and only
 reads the previous stage's directory, so **any stage can be re-run and tuned in
@@ -102,11 +102,14 @@ book keeps its original trim size; figures are placed at the size they had in
 the original book (measured from the scan crops in `work/95-markdown/debug/`),
 capped at the text column.
 
-The fonts mirror the original's early-80s phototypesetting: **TeX Gyre
-Termes** (Times) for body text, **TeX Gyre Heros** (Helvetica) for headings,
-**TeX Gyre Cursor** (Courier) for the BASIC listings — all metric clones baked
-into the image. Swap any of them with e.g.
-`--set render.fontBody="DejaVu Serif"`.
+The typography is tuned for a young reader with the right 80s flavor:
+**URW Bookman** (the ITC Bookman clone — the warm, wide face all over 1980s
+computer books) for body text at a child-friendly 12.5 pt, and the **genuine
+Sinclair ZX Spectrum character set** (public-domain TTF, full German umlaut
+coverage) for headings and BASIC listings — at the default sizes a listing
+line fits ~32 characters, the Spectrum's actual screen width. URW Gothic
+(Avant Garde) and the TeX Gyre Times/Helvetica/Courier clones are also baked
+into the image; swap any face with e.g. `--set render.fontBody="TeX Gyre Termes"`.
 
 Useful knobs (see `src/config.js` → `render` for all of them):
 
@@ -126,7 +129,7 @@ The exact HTML/CSS that was typeset lands in `work/97-render/debug/book.html`
   `src/` and `scripts/` mounted from the workspace, so code edits apply
   without rebuilding the image
 - **pdfcut: run from stage onward (dev mounts, force)** — re-cascade after tuning
-- **pdfcut: render print PDF** — `output/book.md` → `output/book-print.pdf`
+- **pdfcut: render print PDF** — `output/book.md` → `output/book-print.pdf` at A5
 - **pdfcut: open HTML report**
 - **pdfcut: clean work dir**
 - **pdfcut: create synthetic test PDF** — writes `input/test.pdf` with all the

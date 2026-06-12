@@ -63,7 +63,7 @@
     {
       "label": "pdfcut: render print PDF (output/book.md → output/book-print.pdf)",
       "type": "shell",
-      "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" pdf-cut render",
+      "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" pdf-cut render --set render.pageWidthMm=148 --set render.pageHeightMm=210",
       "problemMatcher": []
     },
     {
