@@ -9,6 +9,9 @@ export const DEFAULT_CONFIG = {
     dpi: 600,
   },
   cover: {
+    // Which PDF scan page holds the wrap-around cover; 0 = input has no
+    // cover scan (e.g. already-split single-page scans).
+    scanPage: 1,
     model: 'gemini-3-pro-image-preview',
     imageSize: '4K',
     // "auto" picks the closest supported Gemini aspect ratio from the scan.
@@ -33,7 +36,10 @@ export const DEFAULT_CONFIG = {
   split: {
     centerRatio: 0.5,
     overlapPx: 0,
-    // Book page number assigned to the LEFT half of the first spread (scan 2).
+    // Scans wider than height*splitAspectMin are 2-up spreads and get cut;
+    // anything else passes through as an already-single page.
+    splitAspectMin: 1.1,
+    // Book page number assigned to the first emitted page.
     firstBookPage: 2,
     order: 'left-first',
     // Per-scan centerRatio overrides, e.g. { "0012": 0.515 }
@@ -43,7 +49,12 @@ export const DEFAULT_CONFIG = {
     maxAngle: 3.0,
     coarseStep: 0.25,
     fineStep: 0.05,
-    downsample: 8,
+    // Angle estimation runs at this resolution regardless of scan DPI.
+    estimateDpi: 150,
+    contentDelta: 25,
+    lineMaxHeightPx: 30, // at estimateDpi; drops illustrations/holes
+    minInkPx: 800,       // below this: blank page, keep angle 0
+    minScoreRatio: 1.15, // peak/median sharpness; below: keep angle 0
     // Per-page fixed angle in degrees (skips estimation), e.g. { "0017": -0.4 }
     overrides: {},
   },
@@ -83,10 +94,17 @@ export const DEFAULT_CONFIG = {
   },
   detect: {
     darkThreshold: 70,
-    minDiamMm: 4.5,
-    maxDiamMm: 8.0,
+    minDiamMm: 2.5,
+    maxDiamMm: 9.0,
     circularityMin: 0.65,
     edgeCircularityMin: 0.4,
+    // Cross-page punch-position clustering: candidates this round (voters)
+    // define hole positions; positions seen on >= clusterMinFrac of pages are
+    // applied to EVERY page, even where the hole hides inside artwork.
+    voterCircularityMin: 0.7,
+    clusterTolMm: 8.0,
+    clusterMinFrac: 0.3,
+    minPagesForCluster: 4,
     // Where hole centers may sit (union; set a fraction to 0 to disable):
     // a band across the top of the page (top-margin punching, hanging files)
     // and a strip along the gutter (ring binders).

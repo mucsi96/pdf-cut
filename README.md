@@ -94,10 +94,31 @@ pdfcut stages          # list stages
 pdfcut clean-work [--from <stage>]
 ```
 
+### Input variants
+
+- **2-up spreads** (default): page 1 is the wrap-around cover, every other PDF
+  page holds two book pages and gets split.
+- **Already-single pages** (portrait scans): detected automatically and passed
+  through unsplit. If there is no cover scan, run with
+  `--set cover.scanPage=0 --set split.firstBookPage=1`.
+- `extract.dpi` must be the **true** resolution of the scans — all physical
+  (mm-based) parameters and the output page size derive from it. Stale ppi
+  tags inside the PDF are ignored (a warning is printed when they disagree).
+
+### How punch holes are found
+
+A punch machine hits the same spot on every page, so detection clusters
+hole-shaped blobs **across pages** (separately for left/right pages): positions
+confirmed on enough pages (`detect.clusterMinFrac`) are repaired on *every*
+page — even where the hole overlaps artwork or text and is undetectable on
+that page alone. The overlay debug shows search regions (green), the voted
+punch positions (magenta), per-page candidates (yellow) and applied holes
+(red, labeled `detected` or `cluster`).
+
 Notes:
 
-- `--pages` selects **PDF scan pages** (each holds two book pages); page 1 is
-  always the cover. Book page numbers stay stable across partial runs.
+- `--pages` selects **PDF scan pages** (each may hold two book pages). Book
+  page numbers stay stable across partial runs.
 - Changing `--pages` or any stage parameter invalidates the stage automatically
   (hash check); unchanged stages are skipped unless `--force`.
 - The final PDFs inherit physical size from the scan DPI (pixels ÷ 600 = inches).

@@ -28,7 +28,12 @@
   },
   "clean": {
     "mode": "preserve",
-    "margins": { "top": 60, "bottom": 60, "left": 60, "right": 60 },
+    "margins": {
+      "top": 60,
+      "bottom": 60,
+      "left": 60,
+      "right": 60
+    },
     "maxBorderIntrusionPx": 250,
     "minSpeckArea": 60,
     "contentDelta": 25,
@@ -38,10 +43,14 @@
   },
   "detect": {
     "darkThreshold": 70,
-    "minDiamMm": 4.5,
-    "maxDiamMm": 8.0,
+    "minDiamMm": 2.5,
+    "maxDiamMm": 9.0,
     "circularityMin": 0.65,
     "edgeCircularityMin": 0.4,
+    "voterCircularityMin": 0.7,
+    "clusterTolMm": 8.0,
+    "clusterMinFrac": 0.3,
+    "minPagesForCluster": 4,
     "searchTopFrac": 0.18,
     "searchInnerWidthFrac": 0.18,
     "maskDilatePx": 24

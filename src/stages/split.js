@@ -9,18 +9,20 @@ export const configKey = 'split';
 export const title = 'Split 2-up scans into single pages';
 
 /**
- * Cuts every scan (except scan 1 = cover) into a left and a right book page.
- * Page numbers are derived from the scan number so a partial run (--pages)
- * still yields stable numbering: left(scan N) = firstBookPage + (N-2)*2.
+ * Cuts every landscape scan (except the cover scan) into a left and a right
+ * book page. Portrait scans are already single pages and pass through
+ * unchanged. Page numbers are assigned sequentially from firstBookPage in
+ * scan order (a landscape scan consumes two numbers, a portrait scan one).
  */
 export async function run_(ctx, { stageDir, params }) {
   const extractDir = ctx.dir('extract');
+  const coverScan = ctx.config.cover?.scanPage ?? 1;
   const scans = fs
     .readdirSync(extractDir)
     .filter((n) => /^scan-\d{4}\.png$/.test(n))
     .sort()
     .map((n) => ({ file: path.join(extractDir, n), num: parseInt(n.slice(5, 9), 10) }))
-    .filter((s) => s.num >= 2); // scan 1 is the cover
+    .filter((s) => s.num !== coverScan);
 
   if (!scans.length) {
     ctx.log('  split: no interior scans found (only the cover was extracted?)');
@@ -28,15 +30,33 @@ export async function run_(ctx, { stageDir, params }) {
   }
 
   const pageMap = {};
+  let nextPage = params.firstBookPage;
   for (const scan of scans) {
     const img = sharp(scan.file);
     const { width, height, density } = await img.metadata();
+
+    if (width <= height * (params.splitAspectMin ?? 1.1)) {
+      // Portrait: already a single book page.
+      const pageNum = nextPage++;
+      fs.copyFileSync(scan.file, path.join(stageDir, `page-${pad(pageNum)}.png`));
+      pageMap[pad(scan.num)] = { single: pageNum };
+      const svg = Buffer.from(
+        `<svg width="${width}" height="${height}">` +
+          `<text x="30" y="${Math.round(height * 0.05) + 40}" font-size="${Math.round(height * 0.04)}" fill="red">no split (portrait)</text></svg>`,
+      );
+      const marked = await sharp(scan.file).composite([{ input: svg }]).png().toBuffer();
+      await sharp(marked).resize({ width: 1400 }).jpeg({ quality: 80 })
+        .toFile(path.join(stageDir, 'debug', `cut-scan-${pad(scan.num)}.jpg`));
+      continue;
+    }
+
     const ratio = params.overrides?.[pad(scan.num)] ?? params.centerRatio;
     const cut = Math.round(width * ratio);
     const overlap = params.overlapPx | 0;
 
-    const leftPage = params.firstBookPage + (scan.num - 2) * 2;
-    const rightPage = leftPage + 1;
+    const leftPage = nextPage;
+    const rightPage = nextPage + 1;
+    nextPage += 2;
     const [firstNum, secondNum] = params.order === 'right-first' ? [rightPage, leftPage] : [leftPage, rightPage];
 
     const leftW = Math.min(width, cut + overlap);

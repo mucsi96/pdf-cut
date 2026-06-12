@@ -23,9 +23,11 @@ def projection_score(binary, angle):
     return float(np.var(profile))
 
 
-def estimate_angle(gray, params):
-    ds = params["downsample"]
-    small = cv2.resize(gray, None, fx=1.0 / ds, fy=1.0 / ds, interpolation=cv2.INTER_AREA)
+def estimate_angle(gray, params, dpi):
+    # Estimate at ~75 dpi regardless of scan resolution so all pixel
+    # parameters below are scale-invariant.
+    ds = max(1, round(dpi / params.get("estimateDpi", 150)))
+    small = cv2.resize(gray, None, fx=1.0 / ds, fy=1.0 / ds, interpolation=cv2.INTER_AREA) if ds > 1 else gray
     # Threshold relative to the paper level rather than Otsu: on faintly
     # printed pages Otsu latches onto punch holes/edge residue and misses the
     # light-gray text entirely.
@@ -34,13 +36,40 @@ def estimate_angle(gray, params):
     binary = (small < paper - params.get("contentDelta", 25)).astype(np.uint8)
     # Fuse characters into text lines so the profile has sharp peaks.
     binary = cv2.dilate(binary, cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1)))
-    # Drop tall components (illustrations, punch holes, gutter shadows): only
-    # text lines should drive the projection profile.
+    # Keep only text-line-shaped components: drop tall ones (illustrations,
+    # punch holes, gutter shadows), then require height close to the median
+    # line height and a wide aspect — illustration fragments (keyboard rows,
+    # screen edges) would otherwise outvote the text.
     max_h = params.get("lineMaxHeightPx", 30)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    comp_h = [stats[i][3] for i in range(1, n) if stats[i][3] <= max_h and stats[i][2] >= 2 * stats[i][3]]
+    med_h = float(np.median(comp_h)) if comp_h else 0
+    line_idx = []
     for i in range(1, n):
-        if stats[i][3] > max_h:
+        bw, bh = stats[i][2], stats[i][3]
+        line_like = (bh <= max_h and bw >= 2 * bh
+                     and (med_h == 0 or 0.5 * med_h <= bh <= 2.0 * med_h))
+        if line_like:
+            line_idx.append(i)
+        else:
             binary[labels == i] = 0
+    # Prefer full-width text lines over narrower line-like fragments from
+    # illustrations (keyboard rows etc.) — paste-up era drawings often sit at
+    # a slightly different angle than the text, and the text must win.
+    if line_idx:
+        widths = [stats[i][2] for i in line_idx]
+        wide = float(np.percentile(widths, 90))
+        min_w = params.get("lineMinWidthFrac", 0.5) * wide
+        kept = [i for i in line_idx if stats[i][2] >= min_w]
+        if len(kept) >= 3:
+            for i in line_idx:
+                if stats[i][2] < min_w:
+                    binary[labels == i] = 0
+
+    # Not enough line-like ink to estimate from (blank/illustration-only
+    # page): report low confidence instead of a garbage angle.
+    if binary.sum() < params.get("minInkPx", 800):
+        return 0.0, None, "too little text"
 
     max_angle = params["maxAngle"]
     coarse = params["coarseStep"]
@@ -49,6 +78,11 @@ def estimate_angle(gray, params):
     angles = np.arange(-max_angle, max_angle + 1e-9, coarse)
     scores = [projection_score(binary, a) for a in angles]
     best = float(angles[int(np.argmax(scores))])
+    # A real text page has a sharp score peak; a flat score surface means the
+    # estimate is noise.
+    ratio = max(scores) / (float(np.median(scores)) + 1e-9)
+    if ratio < params.get("minScoreRatio", 1.15):
+        return 0.0, None, f"flat score surface (peak/median {ratio:.2f})"
 
     fine_angles = np.arange(best - 0.3, best + 0.3 + 1e-9, fine)
     fine_scores = [projection_score(binary, a) for a in fine_angles]
@@ -57,7 +91,7 @@ def estimate_angle(gray, params):
     return best_fine, {
         "coarse": {f"{a:.2f}": s for a, s in zip(angles.tolist(), scores)},
         "fine": {f"{a:.2f}": s for a, s in zip(fine_angles.tolist(), fine_scores)},
-    }
+    }, None
 
 
 def save_png(arr, path, dpi):
@@ -98,11 +132,14 @@ def main():
 
         if page_id in overrides:
             angle = float(overrides[page_id])
-            sweep = None
+            sweep, low_conf = None, None
             print(f"deskew: page {page_id} angle {angle:+.2f} (override)")
         else:
-            angle, sweep = estimate_angle(gray, params)
-            print(f"deskew: page {page_id} angle {angle:+.2f}")
+            angle, sweep, low_conf = estimate_angle(gray, params, args.dpi)
+            if low_conf:
+                print(f"deskew: page {page_id} angle 0.00 (low confidence: {low_conf})")
+            else:
+                print(f"deskew: page {page_id} angle {angle:+.2f}")
 
         h, w = gray.shape
         if abs(angle) < 1e-4:
@@ -115,6 +152,8 @@ def main():
         save_png(rotated, os.path.join(args.output_dir, fname), args.dpi)
         debug_overlay(rotated, angle, os.path.join(args.debug_dir, f"grid-page-{page_id}.jpg"))
         all_angles[page_id] = {"angle": angle, "override": page_id in overrides}
+        if low_conf:
+            all_angles[page_id]["lowConfidence"] = low_conf
         if sweep:
             all_angles[page_id]["bestCoarseScore"] = max(sweep["coarse"].values())
 

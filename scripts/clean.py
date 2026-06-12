@@ -215,6 +215,22 @@ def save_jpg(arr, path, width=1000):
     cv2.imwrite(path, vis, [cv2.IMWRITE_JPEG_QUALITY, 80])
 
 
+def scale_params(p, dpi):
+    """All pixel-based defaults were tuned at 600 dpi — scale them to the
+    actual scan resolution (areas scale quadratically)."""
+    s = dpi / 600.0
+    q = dict(p)
+    for k, d in (("bgKernelPx", 81), ("despeckleBandPx", 350), ("sauvolaWindowPx", 61),
+                 ("contentDilatePx", 60), ("contentFeatherPx", 8), ("picWindowPx", 51),
+                 ("maxBorderIntrusionPx", 250)):
+        q[k] = max(1, int(round(q.get(k, d) * s)))
+    q["minSpeckArea"] = max(1, int(round(q.get("minSpeckArea", 60) * s * s)))
+    q["picMinAreaPx"] = max(1, int(round(q.get("picMinAreaPx", 40000) * s * s)))
+    margins = q.get("margins", {"top": 60, "bottom": 60, "left": 60, "right": 60})
+    q["margins"] = {side: max(0, int(round(v * s))) for side, v in margins.items()}
+    return q
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input-dir", required=True)
@@ -223,7 +239,7 @@ def main():
     ap.add_argument("--dpi", type=int, default=600)
     ap.add_argument("--params", required=True)
     args = ap.parse_args()
-    p = json.loads(args.params)
+    p = scale_params(json.loads(args.params), args.dpi)
 
     pages = sorted(f for f in os.listdir(args.input_dir) if f.startswith("page-") and f.endswith(".png"))
     for fname in pages:

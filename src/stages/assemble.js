@@ -35,9 +35,10 @@ export async function run_(ctx, { stageDir, params }) {
   }
 
   let coverPng = path.join(ctx.dir('cover'), 'cover.png');
+  const coverScan = ctx.config.cover?.scanPage ?? 1;
   if (ctx.skipCover || !fs.existsSync(coverPng)) {
-    const rawCover = path.join(ctx.dir('extract'), `scan-${pad(1)}.png`);
-    coverPng = fs.existsSync(rawCover) ? rawCover : null;
+    const rawCover = coverScan ? path.join(ctx.dir('extract'), `scan-${pad(coverScan)}.png`) : null;
+    coverPng = rawCover && fs.existsSync(rawCover) ? rawCover : null;
     if (coverPng) ctx.log('  assemble: using raw cover scan (no AI cover available)');
   }
   if (coverPng) {

@@ -12,9 +12,14 @@ export const title = 'Recreate the wrap-around cover in color with Gemini';
 const SUPPORTED_RATIOS = ['21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'];
 
 export async function run_(ctx, { stageDir, params }) {
-  const scanPath = path.join(ctx.dir('extract'), `scan-${pad(1)}.png`);
+  const scanPage = params.scanPage ?? 1;
+  if (!scanPage) {
+    ctx.log('  cover: disabled (cover.scanPage=0 — input has no cover scan)');
+    return { skipped: 'disabled' };
+  }
+  const scanPath = path.join(ctx.dir('extract'), `scan-${pad(scanPage)}.png`);
   if (!fs.existsSync(scanPath)) {
-    ctx.log('  cover: scan-0001.png not found (page 1 not extracted) — skipping');
+    ctx.log(`  cover: scan-${pad(scanPage)}.png not found (page ${scanPage} not extracted) — skipping`);
     return { skipped: 'no-scan' };
   }
 

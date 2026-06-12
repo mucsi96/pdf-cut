@@ -53,15 +53,16 @@ export async function run_(ctx, { stageDir, params }) {
       if (candidates.length !== 1) throw new Error(`extract: expected 1 image for page ${p}, got ${candidates.length}`);
       const src = path.join(tmp, candidates[0]);
       const inv = inventory.find((i) => i.page === p);
-      const density = inv?.xppi || dpi;
+      // The config DPI is authoritative for physical size and all mm-based
+      // math; embedded ppi tags are often stale (e.g. after downsampling).
       if (inv?.xppi && Math.abs(inv.xppi - dpi) > 5) {
-        ctx.log(`  extract: warning — page ${p} embedded image is ${inv.xppi} ppi, config says ${dpi}`);
+        ctx.log(`  extract: warning — page ${p} embedded image claims ${inv.xppi} ppi, using config extract.dpi=${dpi}`);
       }
-      scanDpi[pad(p)] = density;
+      scanDpi[pad(p)] = dpi;
       await sharp(src)
         .grayscale()
         .png({ compressionLevel: 6 })
-        .withMetadata({ density })
+        .withMetadata({ density: dpi })
         .toFile(path.join(stageDir, `scan-${pad(p)}.png`));
       fs.rmSync(src);
     }
