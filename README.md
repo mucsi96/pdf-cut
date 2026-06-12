@@ -69,9 +69,11 @@ podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env \
 
 Writes `output/book.md` and `output/images/`. Per-page transcriptions are
 cached in `work/95-markdown/` — an interrupted run resumes where it stopped,
-and only `--force` (or changed parameters) re-pays for already-transcribed
-pages. Spot-check `work/95-markdown/page-NNNN.md` against `work/report.html`;
-to redo a single page, delete its `.md` file and re-run. The default model is
+and a page is only re-sent to Gemini when its `.md` is missing or a parameter
+that affects transcription (model, prompt, …) changed; `--force` redoes
+everything. Spot-check `work/95-markdown/page-NNNN.md` against
+`work/report.html`; to redo a single page, delete its `.md` file and re-run.
+The default model is
 `gemini-3.1-pro-preview` (best on the BASIC listings); switch with
 `--set markdown.model=gemini-3.5-flash` to convert cheaper.
 

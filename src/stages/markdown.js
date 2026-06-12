@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 import { generateText, buildTextRequestBody } from '../gemini.js';
+import { hashParams } from '../manifest.js';
 import { parsePageRange } from '../pages.js';
 
 export const name = 'markdown';
@@ -12,8 +13,18 @@ export const title = 'Transcribe body pages to Markdown with Gemini (text + figu
 // runs when named explicitly (--stages markdown / `pdfcut markdown`).
 export const optIn = true;
 // Keep per-page results across runs so a crashed/interrupted book run resumes
-// instead of re-paying for every page.
+// instead of re-paying for every page. Staleness is tracked per page (see
+// transcriptionHash), so bodyPages/concurrency/merge changes never re-pay.
 export const preserveDir = true;
+// Re-merge on every invocation: lets "delete one page-NNNN.md and re-run"
+// redo a single page, and applies merge fixes to cached transcriptions.
+export const alwaysRun = true;
+
+/** Hash of only the parameters that change what Gemini returns for a page. */
+export function transcriptionHash(params) {
+  const { model, prompt, temperature, maxInputPx, figurePadPx } = params;
+  return hashParams({ model, prompt, temperature, maxInputPx, figurePadPx });
+}
 
 /**
  * One Gemini vision call per book page turns the final cleaned scan into
@@ -61,12 +72,14 @@ export async function run_(ctx, { stageDir, params }) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   fs.writeFileSync(path.join(stageDir, 'debug', 'prompt.txt'), params.prompt);
+  const txHash = transcriptionHash(params);
 
   let cached = 0;
   let transcribed = 0;
   const transcribePage = async (id) => {
     const mdFile = path.join(stageDir, `page-${id}.md`);
-    if (fs.existsSync(mdFile)) {
+    const metaFile = path.join(stageDir, 'debug', `page-${id}-meta.json`);
+    if (fs.existsSync(mdFile) && readJson(metaFile)?.txHash === txHash) {
       cached++;
       return;
     }
@@ -85,7 +98,7 @@ export async function run_(ctx, { stageDir, params }) {
       log: ctx.log,
     });
     fs.writeFileSync(path.join(stageDir, 'debug', `page-${id}-raw.md`), text);
-    fs.writeFileSync(path.join(stageDir, 'debug', `page-${id}-meta.json`), JSON.stringify(meta, null, 2));
+    fs.writeFileSync(metaFile, JSON.stringify({ txHash, ...meta }, null, 2));
     const md = await extractFigures(text, { id, pagePng, imagesDir, padPx: params.figurePadPx });
     fs.writeFileSync(mdFile, md);
     transcribed++;
@@ -190,9 +203,16 @@ export function mergePages(pages) {
     } else if (pendingCont && contStart) {
       const prevFence = book.match(/\n```\s*$/);
       const curFence = t.match(/^```[a-z]*\n/);
+      const prevTableRow = /(^|\n)\|[^\n]*\|\s*$/.test(book);
       if (prevFence && curFence) {
         // same code block split across the page break: splice the fences
         book = book.slice(0, prevFence.index) + '\n' + t.slice(curFence[0].length);
+      } else if (prevTableRow && t.startsWith('|')) {
+        // same table split across the page break: drop a repeated
+        // header + separator row, then append the continuation rows
+        const lines = t.split('\n');
+        if (lines.length >= 2 && /^\|[\s\-:|]*\|$/.test(lines[1])) lines.splice(0, 2);
+        book = book + '\n' + lines.join('\n');
       } else if (/[A-Za-zÄÖÜäöüß]-$/.test(book)) {
         book = book.slice(0, -1) + t; // de-hyphenate the split word
       } else {
@@ -204,6 +224,14 @@ export function mergePages(pages) {
     pendingCont = contEnd;
   }
   return { text: book + '\n', skipped };
+}
+
+function readJson(p) {
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch {
+    return null;
+  }
 }
 
 /** Run fn over items with at most `size` in flight; first failure aborts. */

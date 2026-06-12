@@ -80,10 +80,10 @@ export async function runPipeline(ctx, stages) {
     }
 
     ctx.log(`■ ${stage.name}: running …`);
-    // preserveDir stages keep their per-page artifacts when re-run with the
-    // same parameters (resume after an interrupted run); anything else — and
-    // --force — starts from a clean directory.
-    const keepDir = stage.preserveDir && !ctx.force && readManifest(stageDir)?.paramsHash === paramsHash;
+    // preserveDir stages keep their per-page artifacts across runs (resume
+    // after an interrupted run, parameter staleness tracked per page by the
+    // stage itself); only --force starts from a clean directory.
+    const keepDir = stage.preserveDir && !ctx.force;
     if (!keepDir) fs.rmSync(stageDir, { recursive: true, force: true });
     fs.mkdirSync(path.join(stageDir, 'debug'), { recursive: true });
     if (stage.preserveDir) {
