@@ -73,7 +73,7 @@ export async function run_(ctx, { stageDir, params }) {
     await sharp(rawPath)
       .resize(meta.width, meta.height, { fit: 'cover', position: 'centre', kernel: 'lanczos3' })
       .png({ compressionLevel: 6 })
-      .withMetadata({ density: meta.density || ctx.config.extract.dpi })
+      .withMetadata({ density: meta.density || ctx.dpi() })
       .toFile(path.join(stageDir, `cover-variant-${v}.png`));
     fs.writeFileSync(path.join(stageDir, 'debug', `cover-variant-${v}-meta.json`), JSON.stringify(genMeta, null, 2));
     variants.push(`cover-variant-${v}.png`);

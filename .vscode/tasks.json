@@ -49,6 +49,12 @@
       "problemMatcher": []
     },
     {
+      "label": "pdfcut: slice input PDF (page range → small PDF)",
+      "type": "shell",
+      "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" pdf-cut slice --input '${input:inputPdf}' --pages '${input:pages}'",
+      "problemMatcher": []
+    },
+    {
       "label": "pdfcut: create synthetic test PDF (input/test.pdf)",
       "type": "shell",
       "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" --entrypoint python3 pdf-cut /app/scripts/make_fixture.py /data/input/test.pdf",

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hashParams, isUpToDate, writeManifest } from './manifest.js';
+import { hashParams, isUpToDate, readManifest, writeManifest } from './manifest.js';
 
 import * as extract from './stages/extract.js';
 import * as cover from './stages/cover.js';
@@ -47,6 +47,13 @@ export function makeContext({ config, inputPdf, workRoot, outputDir, pages, forc
     skipCover: !!skipCover,
     log: (msg) => console.log(msg),
     dir: (stageName) => path.join(path.resolve(workRoot), stageByName(stageName).dir),
+    // Effective scan DPI, resolved by the extract stage ("auto" reads it from
+    // the PDF itself); falls back to a numeric config value.
+    dpi: () => {
+      const m = readManifest(ctx.dir('extract'));
+      if (m?.dpi) return m.dpi;
+      return typeof config.extract.dpi === 'number' ? config.extract.dpi : 600;
+    },
   };
   return ctx;
 }

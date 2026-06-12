@@ -6,7 +6,9 @@ export const DEFAULT_CONFIG = {
     // resampling — true baseline). "render": rasterize with pdftoppm at `dpi`.
     // "auto": embedded when every page holds exactly one image, else render.
     mode: 'auto',
-    dpi: 600,
+    // "auto" reads the true scan DPI from the PDF's own page layout;
+    // set a number only when the PDF carries bogus page boxes.
+    dpi: 'auto',
   },
   cover: {
     // Which PDF scan page holds the wrap-around cover; 0 = input has no

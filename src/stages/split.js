@@ -65,12 +65,12 @@ export async function run_(ctx, { stageDir, params }) {
     await sharp(scan.file)
       .extract({ left: 0, top: 0, width: leftW, height })
       .png({ compressionLevel: 6 })
-      .withMetadata({ density: density || ctx.config.extract.dpi })
+      .withMetadata({ density: density || ctx.dpi() })
       .toFile(path.join(stageDir, `page-${pad(firstNum)}.png`));
     await sharp(scan.file)
       .extract({ left: rightX, top: 0, width: width - rightX, height })
       .png({ compressionLevel: 6 })
-      .withMetadata({ density: density || ctx.config.extract.dpi })
+      .withMetadata({ density: density || ctx.dpi() })
       .toFile(path.join(stageDir, `page-${pad(secondNum)}.png`));
 
     pageMap[pad(scan.num)] = { left: firstNum, right: secondNum, cut, ratio };

@@ -62,6 +62,32 @@ program
   });
 
 program
+  .command('slice')
+  .description('Cut a page range out of a PDF into a new (small) PDF, e.g. to share a test sample')
+  .requiredOption('--pages <range>', 'pages to keep, e.g. "1-10,15"')
+  .option('--input <pdf>', 'input PDF', 'input/book.pdf')
+  .option('--output <pdf>', 'output PDF (default: <input>-pages-<range>.pdf)')
+  .action(async (opts) => {
+    const { run } = await import('./exec.js');
+    const os = await import('node:os');
+    const pages = parsePageRange(opts.pages);
+    const output = opts.output
+      || opts.input.replace(/\.pdf$/i, '') + `-pages-${opts.pages.replace(/[^\d,-]/g, '')}.pdf`;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pdfcut-slice-'));
+    try {
+      await run('pdfseparate', ['-f', String(pages[0]), '-l', String(pages[pages.length - 1]),
+        opts.input, path.join(tmp, 'p-%d.pdf')], { quiet: true });
+      const parts = pages.map((p) => path.join(tmp, `p-${p}.pdf`));
+      const missing = parts.filter((f) => !fs.existsSync(f));
+      if (missing.length) throw new Error(`pages out of range: ${missing.length} of ${parts.length} not found in input`);
+      await run('pdfunite', [...parts, output], { quiet: true });
+      console.log(`wrote ${output} (${parts.length} pages)`);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+program
   .command('stages')
   .description('List the canonical stage order')
   .action(() => {

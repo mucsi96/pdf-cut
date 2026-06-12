@@ -1,7 +1,7 @@
 {
   "extract": {
     "mode": "auto",
-    "dpi": 600
+    "dpi": "auto"
   },
   "cover": {
     "model": "gemini-3-pro-image-preview",

@@ -17,7 +17,7 @@ export async function run_(ctx, { stageDir, params }) {
     '--input-dir', ctx.dir('deskew'),
     '--output-dir', stageDir,
     '--debug-dir', path.join(stageDir, 'debug'),
-    '--dpi', String(ctx.config.extract.dpi),
+    '--dpi', String(ctx.dpi()),
     '--params', JSON.stringify(params),
   ], { label: 'detect_holes.py' });
 }

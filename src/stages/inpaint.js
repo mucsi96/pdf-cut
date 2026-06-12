@@ -107,7 +107,7 @@ export async function run_(ctx, { stageDir, params }) {
     await sharp(src)
       .composite(composites)
       .png({ compressionLevel: 6 })
-      .withMetadata({ density: density || ctx.config.extract.dpi })
+      .withMetadata({ density: density || ctx.dpi() })
       .toFile(dst);
 
     // Debug: full page with patch outlines.

@@ -17,7 +17,6 @@ export const title = 'Extract scan images from PDF';
  */
 export async function run_(ctx, { stageDir, params }) {
   const pages = ctx.pages; // null = all
-  const dpi = params.dpi;
 
   // Inventory the embedded images.
   const { stdout: listOut } = await run('pdfimages', ['-list', ctx.inputPdf], { capture: true, quiet: true });
@@ -27,6 +26,36 @@ export async function run_(ctx, { stageDir, params }) {
   const { stdout: infoOut } = await run('pdfinfo', [ctx.inputPdf], { capture: true, quiet: true });
   const totalPages = parseInt(infoOut.match(/^Pages:\s+(\d+)/m)?.[1] || '0', 10);
   const wantedPages = pages ?? Array.from({ length: totalPages }, (_, i) => i + 1);
+
+  // Resolve the scan DPI. "auto" (default) trusts the PDF's own layout: the
+  // ppi pdfimages derives from image pixels vs. page-box size — correct for
+  // scanner-produced PDFs. A number in the config overrides it for files
+  // with bogus page boxes.
+  let dpi;
+  const ppis = inventory.filter((i) => wantedPages.includes(i.page) && i.xppi).map((i) => i.xppi);
+  const detected = ppis.length ? Math.round(median(ppis)) : null;
+  if (params.dpi === 'auto' || !params.dpi) {
+    if (!detected) {
+      throw new Error('extract: could not detect scan DPI from the PDF — set extract.dpi explicitly');
+    }
+    dpi = detected;
+  } else {
+    dpi = params.dpi;
+    if (detected && Math.abs(detected - dpi) > 5) {
+      ctx.log(`  extract: warning — PDF claims ${detected} ppi, config overrides with extract.dpi=${dpi}`);
+    }
+  }
+  const first = inventory.find((i) => wantedPages.includes(i.page));
+  if (first) {
+    const mmW = (first.width / dpi) * 25.4;
+    const mmH = (first.height / dpi) * 25.4;
+    ctx.log(`  extract: scan DPI ${dpi}${params.dpi === 'auto' || !params.dpi ? ' (auto-detected)' : ''} — ` +
+      `page ${first.page}: ${first.width}x${first.height}px → ${mmW.toFixed(0)} x ${mmH.toFixed(0)} mm`);
+    if (mmW < 50 || mmW > 500 || mmH < 50 || mmH > 500) {
+      ctx.log('  extract: WARNING — implied physical page size looks implausible; ' +
+        'check extract.dpi (set a number to override auto-detection)');
+    }
+  }
 
   const perPage = new Map();
   for (const img of inventory) {
@@ -52,12 +81,6 @@ export async function run_(ctx, { stageDir, params }) {
       const candidates = fs.readdirSync(tmp).filter((n) => n.startsWith(`img-${String(p).padStart(3, '0')}-`));
       if (candidates.length !== 1) throw new Error(`extract: expected 1 image for page ${p}, got ${candidates.length}`);
       const src = path.join(tmp, candidates[0]);
-      const inv = inventory.find((i) => i.page === p);
-      // The config DPI is authoritative for physical size and all mm-based
-      // math; embedded ppi tags are often stale (e.g. after downsampling).
-      if (inv?.xppi && Math.abs(inv.xppi - dpi) > 5) {
-        ctx.log(`  extract: warning — page ${p} embedded image claims ${inv.xppi} ppi, using config extract.dpi=${dpi}`);
-      }
       scanDpi[pad(p)] = dpi;
       await sharp(src)
         .grayscale()
@@ -99,7 +122,12 @@ export async function run_(ctx, { stageDir, params }) {
     );
   }
 
-  return { mode, scanDpi, totalPages, scans };
+  return { mode, dpi, scanDpi, totalPages, scans };
+}
+
+function median(arr) {
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
 }
 
 function parseImageList(text) {
