@@ -184,14 +184,19 @@ def main():
 
         save_png(out, os.path.join(args.output_dir, fname), args.dpi)
 
-        # Debug: before/after + changed-pixel mask (red).
+        # Debug: before/after + content-change mask. Background whitening would
+        # flag nearly every pixel, so only mark real ink changes:
+        # red = ink removed (watch for content loss!), blue = ink added.
         side = np.hstack([original, out])
         save_jpg(side, os.path.join(args.debug_dir, f"before-after-page-{page_id}.jpg"), width=1600)
-        changed = (np.abs(out.astype(np.int16) - original.astype(np.int16)) > 8)
-        vis = cv2.cvtColor(original, cv2.COLOR_GRAY2BGR)
-        vis[changed] = (0, 0, 255)
+        removed = (original < 128) & (out > 192)
+        added = (original > 192) & (out < 128)
+        vis = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
+        vis[removed] = (0, 0, 255)
+        vis[added] = (255, 0, 0)
         save_jpg(vis, os.path.join(args.debug_dir, f"changed-page-{page_id}.jpg"))
-        print(f"clean: page {page_id} done ({int(changed.mean() * 100)}% pixels changed)")
+        print(f"clean: page {page_id} done "
+              f"(ink removed {removed.mean() * 100:.2f}%, added {added.mean() * 100:.2f}%)")
 
 
 if __name__ == "__main__":

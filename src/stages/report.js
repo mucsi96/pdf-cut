@@ -106,7 +106,7 @@ export async function run_(ctx, { stageDir, params }) {
   if (pageIds.size) {
     html +=
       '<h2>Pages</h2><table><tr><th>page</th><th>split</th><th>deskew</th><th>clean</th>' +
-      '<th>clean: changed px</th><th>clean: regions</th><th>holes</th><th>inpaint</th></tr>';
+      '<th>clean: ink removed (red) / added (blue)</th><th>clean: regions</th><th>holes</th><th>inpaint</th></tr>';
     for (const id of [...pageIds].sort()) {
       const a = angles[id];
       const h = holes[id] || [];
