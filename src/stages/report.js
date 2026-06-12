@@ -67,7 +67,7 @@ export async function run_(ctx, { stageDir, params }) {
 
   // ── Run parameters ────────────────────────────────────────────────────
   html += '<details><summary>Stage parameters (manifests)</summary><div class="params">';
-  for (const stage of ['extract', 'cover', 'split', 'deskew', 'clean', 'detect-holes', 'inpaint', 'assemble']) {
+  for (const stage of ['extract', 'cover', 'split', 'deskew', 'clean', 'detect-holes', 'inpaint', 'assemble', 'markdown']) {
     const m = readManifest(d(stage));
     if (m) html += `<h4>${stage} <span class="dim">${m.completedAt || ''} · ${m.durationMs ?? '?'} ms</span></h4><pre>${escapeHtml(JSON.stringify(m.params, null, 2))}</pre>`;
   }

@@ -37,6 +37,12 @@
       "problemMatcher": []
     },
     {
+      "label": "pdfcut: markdown conversion (book body → output/book.md)",
+      "type": "shell",
+      "command": "ENVF=''; [ -f .env ] && ENVF='--env-file .env'; podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" $ENVF pdf-cut markdown --body-pages '${input:bodyPages}'",
+      "problemMatcher": []
+    },
+    {
       "label": "pdfcut: open HTML report",
       "type": "shell",
       "command": "if command -v wslview >/dev/null; then wslview work/report.html; elif command -v explorer.exe >/dev/null; then explorer.exe \"$(wslpath -w work/report.html)\"; else xdg-open work/report.html; fi",
@@ -78,8 +84,14 @@
       "id": "stage",
       "type": "pickString",
       "description": "Pipeline stage",
-      "options": ["extract", "cover", "split", "deskew", "clean", "detect-holes", "inpaint", "report", "assemble"],
+      "options": ["extract", "cover", "split", "deskew", "clean", "detect-holes", "inpaint", "report", "assemble", "markdown"],
       "default": "clean"
+    },
+    {
+      "id": "bodyPages",
+      "type": "promptString",
+      "description": "Book pages to transcribe (\"all\" lets the model skip front matter)",
+      "default": "all"
     }
   ]
 }

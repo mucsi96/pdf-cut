@@ -4,7 +4,7 @@
     "dpi": "auto"
   },
   "cover": {
-    "model": "gemini-3-pro-image-preview",
+    "model": "gemini-3-pro-image",
     "imageSize": "4K",
     "aspectRatio": "auto",
     "variants": 1,
@@ -61,5 +61,12 @@
   "assemble": {
     "bookName": "book.pdf",
     "coverName": "cover.pdf"
+  },
+  "markdown": {
+    "model": "gemini-3.1-pro-preview",
+    "bodyPages": "all",
+    "concurrency": 3,
+    "figureRecreate": true,
+    "figureModel": "gemini-3-pro-image"
   }
 }

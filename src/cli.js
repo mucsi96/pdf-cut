@@ -63,6 +63,22 @@ program
   });
 
 program
+  .command('markdown')
+  .description('Transcribe the cleaned book pages to output/book.md with Gemini (body text + figures)')
+  .option('--work <dir>', 'work directory', 'work')
+  .option('--output <dir>', 'output directory', 'output')
+  .option('--config <file>', 'config file', 'pdfcut.config.json')
+  .option('--body-pages <range>', 'book pages to transcribe, e.g. "12-181" (default: all, model skips front matter)')
+  .option('--set <stage.key=value>', 'override a config value (repeatable)', collect, [])
+  .option('--force', 'discard cached page transcriptions and re-run', false)
+  .action(async (opts) => {
+    const config = loadConfig(opts.config, opts.set);
+    if (opts.bodyPages) config.markdown.bodyPages = opts.bodyPages;
+    const ctx = makeContext({ config, inputPdf: '-', workRoot: opts.work, outputDir: opts.output, pages: null, force: opts.force });
+    await runPipeline(ctx, [stageByName('markdown')]);
+  });
+
+program
   .command('slice')
   .description('Cut a page range out of a PDF into a new (small) PDF, e.g. to share a test sample')
   .requiredOption('--pages <range>', 'pages to keep, e.g. "1-10,15"')

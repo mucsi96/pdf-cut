@@ -9,7 +9,12 @@ scanned two-pages-per-sheet at 600 DPI and produces:
   residue, punch holes repaired with AI inpainting (LaMa), crisp anti-aliased
   text with grayscale illustrations preserved.
 - `output/cover.pdf` — the wrap-around cover (back + spine + front) recreated
-  **in color** by Gemini (`gemini-3-pro-image-preview`) as a single landscape page.
+  **in color** by Gemini (`gemini-3-pro-image`, Nano Banana Pro) as a single landscape page.
+- `output/book.md` + `output/images/` — *(opt-in)* the book body transcribed to
+  Markdown by Gemini vision: German text with hyphenation repaired, BASIC
+  listings as fenced code blocks, every figure recreated **in color** and
+  straightened by the image model (raw scan crops kept in debug/); front
+  matter, TOC, page numbers and running heads dropped.
 
 ## Pipeline
 
@@ -24,6 +29,7 @@ scanned two-pages-per-sheet at 600 DPI and produces:
 | 70 | `inpaint` | LaMa (via iopaint, CPU) on 768 px patches around each hole — one batch call, results pasted back | patch before/after pairs, page with patch boxes |
 | 80 | `report` | static **HTML report**: every stage for every page side by side | `work/report.html` |
 | 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata | `pdfinfo` summary in the log |
+| 95 | `markdown` | **opt-in** (one Gemini call per page, never part of a default run): transcribes each cleaned page to GitHub-flavored Markdown — body text only (page numbers / running heads / front matter dropped), BASIC listings as ` ```basic ` fences, figures cropped from the full-res scan and recreated in color (`gemini-3-pro-image`) into `output/images/`, paragraphs/listings/tables stitched across page breaks → `output/book.md` | per-page raw model output + token usage, raw scan crops of the figures, `prompt.txt` |
 
 Every stage writes its results to its own `work/NN-stage/` directory and only
 reads the previous stage's directory, so **any stage can be re-run and tuned in
@@ -50,6 +56,32 @@ podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env pdf-cut run
 
 No Gemini key? Use `--skip-cover`, or `--set cover.dryRun=true` to just inspect
 the request that would be sent.
+
+### Markdown conversion (after the pipeline has run)
+
+```bash
+# whole book; the model skips front matter / TOC pages on its own:
+podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env pdf-cut markdown
+
+# or pin the body explicitly by book page number (cheaper, deterministic):
+podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env \
+  pdf-cut markdown --body-pages 12-181
+```
+
+Writes `output/book.md` and `output/images/`. Every figure is recreated in
+color (and straightened) by `markdown.figureModel`; the raw scan crops stay in
+`work/95-markdown/debug/…-scan.png` for comparison, and
+`--set markdown.figureRecreate=false` keeps the raw crops instead.
+
+Per-page transcriptions are cached in `work/95-markdown/` — an interrupted run
+resumes where it stopped, and a page is only re-sent to Gemini when its `.md`
+is missing or a parameter that affects it changed (figure-parameter changes
+redo only the figures, reusing the cached text); `--force` redoes everything.
+Spot-check `work/95-markdown/page-NNNN.md` against `work/report.html`; to redo
+a single page, delete its `.md` file and re-run — same for a single figure in
+`work/95-markdown/images/`. The default text model is `gemini-3.1-pro-preview`
+(best on the BASIC listings); switch with
+`--set markdown.model=gemini-3.5-flash` to convert cheaper.
 
 ### VS Code tasks (Terminal → Run Task…)
 
@@ -89,6 +121,7 @@ Useful per-page overrides:
 ```
 pdfcut run [--input <pdf>] [--pages 1-3,7] [--stages a,b | --from s --to s]
            [--set stage.key=value]... [--force] [--skip-cover] [--cover-variants n]
+pdfcut markdown [--body-pages 12-181] [--set markdown.key=value]... [--force]
 pdfcut report          # regenerate work/report.html
 pdfcut stages          # list stages
 pdfcut clean-work [--from <stage>]
