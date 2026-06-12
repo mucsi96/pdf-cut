@@ -61,6 +61,12 @@
       "problemMatcher": []
     },
     {
+      "label": "pdfcut: render print PDF (output/book.md → output/book-print.pdf)",
+      "type": "shell",
+      "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" pdf-cut render --set render.pageWidthMm=148 --set render.pageHeightMm=210",
+      "problemMatcher": []
+    },
+    {
       "label": "pdfcut: create synthetic test PDF (input/test.pdf)",
       "type": "shell",
       "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" --entrypoint python3 pdf-cut /app/scripts/make_fixture.py /data/input/test.pdf",
@@ -84,7 +90,7 @@
       "id": "stage",
       "type": "pickString",
       "description": "Pipeline stage",
-      "options": ["extract", "cover", "split", "deskew", "clean", "detect-holes", "inpaint", "report", "assemble", "markdown"],
+      "options": ["extract", "cover", "split", "deskew", "clean", "detect-holes", "inpaint", "report", "assemble", "markdown", "render"],
       "default": "clean"
     },
     {

@@ -79,6 +79,19 @@ program
   });
 
 program
+  .command('render')
+  .description('Typeset output/book.md into a print-style PDF (TOC, chapter page breaks, color figures)')
+  .option('--work <dir>', 'work directory', 'work')
+  .option('--output <dir>', 'output directory', 'output')
+  .option('--config <file>', 'config file', 'pdfcut.config.json')
+  .option('--set <stage.key=value>', 'override a config value (repeatable)', collect, [])
+  .action(async (opts) => {
+    const config = loadConfig(opts.config, opts.set);
+    const ctx = makeContext({ config, inputPdf: '-', workRoot: opts.work, outputDir: opts.output, pages: null });
+    await runPipeline(ctx, [stageByName('render')]);
+  });
+
+program
   .command('slice')
   .description('Cut a page range out of a PDF into a new (small) PDF, e.g. to share a test sample')
   .requiredOption('--pages <range>', 'pages to keep, e.g. "1-10,15"')

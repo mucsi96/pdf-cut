@@ -210,6 +210,44 @@ export const DEFAULT_CONFIG = {
       '- Output raw Markdown only: no commentary, no surrounding code fence.',
     ].join('\n'),
   },
+  render: {
+    // Typography for a young reader with the right 80s flavor: URW Bookman is
+    // the free clone of ITC Bookman — the warm, wide, very legible face all
+    // over 1980s computer books and ideal for children's text. Headings and
+    // BASIC listings use the genuine Sinclair ZX Spectrum character set
+    // (public-domain TTF baked into the image), so listings look exactly like
+    // the Spectrum screen. Any fontconfig family name works here;
+    // "URW Gothic" (ITC Avant Garde clone) and the TeX Gyre faces are also
+    // installed as alternatives.
+    fontBody: 'URW Bookman',
+    fontHeading: 'ZX Spectrum',
+    fontCode: 'ZX Spectrum',
+    fontSizePt: 12.5,
+    lineHeight: 1.5,
+    codeFontSizePt: 10,
+    // Physical page size in mm; "auto" measures the final cleaned scans
+    // (pixels ÷ dpi) so the rendered book keeps the original trim size.
+    pageWidthMm: 'auto',
+    pageHeightMm: 'auto',
+    // Mirrored book margins (inner = binding side).
+    margins: { top: 17, bottom: 19, inner: 19, outer: 14 },
+    // Hyphenation language for body text (German Silbentrennung).
+    lang: 'de',
+    // Set a title to get a title page; author is the line below it.
+    title: '',
+    author: '',
+    tocTitle: 'Inhaltsverzeichnis',
+    // Heading levels that appear in the TOC (1 = chapters only).
+    tocDepth: 2,
+    // "page": each chapter starts on the next page; "right": on the next
+    // recto page like a classic hardcover (inserts blank versos).
+    chapterBreak: 'page',
+    // Figures print at their measured size in the original book (scan crop
+    // px ÷ dpi) times this factor, capped at figureMaxFrac of the text column.
+    figureScale: 1.0,
+    figureMaxFrac: 1.0,
+    outName: 'book-print.pdf',
+  },
   report: {
     thumbWidth: 360,
   },

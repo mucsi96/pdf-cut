@@ -68,5 +68,14 @@
     "concurrency": 3,
     "figureRecreate": true,
     "figureModel": "gemini-3-pro-image"
+  },
+  "render": {
+    "fontBody": "URW Bookman",
+    "fontHeading": "ZX Spectrum",
+    "fontCode": "ZX Spectrum",
+    "title": "",
+    "author": "",
+    "chapterBreak": "page",
+    "figureScale": 1.0
   }
 }

@@ -45,6 +45,35 @@ RUN mkdir -p /opt/models/torch/hub/checkpoints \
 # layers, so adding it didn't invalidate their build cache.
 RUN apt-get update && apt-get install -y --no-install-recommends qpdf \
     && rm -rf /var/lib/apt/lists/*
+
+# ── Print rendering (`pdfcut render`): WeasyPrint + book fonts ────────────────
+# URW Bookman / URW Gothic (fonts-urw-base35) are the free clones of ITC
+# Bookman / Avant Garde — the faces all over 1980s computer books; the TeX
+# Gyre set (Times/Helvetica/Courier clones) stays available as an alternative.
+# Pango/GDK-Pixbuf are WeasyPrint's text/image backends; pyphen (a dependency)
+# does the German hyphenation.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      fonts-urw-base35 fonts-texgyre fontconfig \
+      libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+ && /opt/venv/bin/pip install --no-cache-dir weasyprint \
+ && /opt/venv/bin/weasyprint --version
+
+# Genuine Sinclair ZX Spectrum character set for headings + BASIC listings
+# (public domain / Unlicense, full German umlaut coverage). The released TTF
+# carries the broken family name "Untitled1" — rewrite the name table so
+# fontconfig matches it as "ZX Spectrum".
+RUN curl -fL -o /tmp/ZXSpectrum.ttf \
+      https://raw.githubusercontent.com/jfsebastian/zx-spectrum-unicode-font/master/build/ZXSpectrum.ttf \
+ && mkdir -p /usr/local/share/fonts \
+ && /opt/venv/bin/python -c "\
+from fontTools.ttLib import TTFont; \
+f = TTFont('/tmp/ZXSpectrum.ttf'); \
+names = {1: 'ZX Spectrum', 4: 'ZX Spectrum', 6: 'ZXSpectrum', 16: 'ZX Spectrum'}; \
+[setattr(r, 'string', names[r.nameID]) for r in f['name'].names if r.nameID in names]; \
+f.save('/usr/local/share/fonts/ZXSpectrum.ttf')" \
+ && rm /tmp/ZXSpectrum.ttf && fc-cache -f \
+ && fc-match 'ZX Spectrum' | grep -q 'ZX Spectrum'
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
