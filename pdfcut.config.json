@@ -61,5 +61,10 @@
   "assemble": {
     "bookName": "book.pdf",
     "coverName": "cover.pdf"
+  },
+  "markdown": {
+    "model": "gemini-3-pro-preview",
+    "bodyPages": "all",
+    "concurrency": 3
   }
 }

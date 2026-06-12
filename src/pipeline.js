@@ -12,9 +12,12 @@ import * as detectHoles from './stages/detectHoles.js';
 import * as inpaint from './stages/inpaint.js';
 import * as report from './stages/report.js';
 import * as assemble from './stages/assemble.js';
+import * as markdown from './stages/markdown.js';
 
 // Canonical order. `cover` is a side branch consuming only scan-0001.
-export const STAGES = [extract, cover, split, deskew, clean, detectHoles, inpaint, report, assemble];
+// `markdown` is opt-in (one Gemini call per page) and never runs as part of a
+// range selection — only when named explicitly.
+export const STAGES = [extract, cover, split, deskew, clean, detectHoles, inpaint, report, assemble, markdown];
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -31,7 +34,7 @@ export function selectStages({ stages, from, to }) {
   const fromIdx = from ? STAGES.indexOf(stageByName(from)) : 0;
   const toIdx = to ? STAGES.indexOf(stageByName(to)) : STAGES.length - 1;
   if (fromIdx > toIdx) throw new Error(`--from ${from} comes after --to ${to}`);
-  return STAGES.slice(fromIdx, toIdx + 1);
+  return STAGES.slice(fromIdx, toIdx + 1).filter((s) => !s.optIn || s.name === from || s.name === to);
 }
 
 export function makeContext({ config, inputPdf, workRoot, outputDir, pages, force, skipCover }) {
@@ -77,8 +80,16 @@ export async function runPipeline(ctx, stages) {
     }
 
     ctx.log(`■ ${stage.name}: running …`);
-    fs.rmSync(stageDir, { recursive: true, force: true });
+    // preserveDir stages keep their per-page artifacts when re-run with the
+    // same parameters (resume after an interrupted run); anything else — and
+    // --force — starts from a clean directory.
+    const keepDir = stage.preserveDir && !ctx.force && readManifest(stageDir)?.paramsHash === paramsHash;
+    if (!keepDir) fs.rmSync(stageDir, { recursive: true, force: true });
     fs.mkdirSync(path.join(stageDir, 'debug'), { recursive: true });
+    if (stage.preserveDir) {
+      // record the params before running, so a crashed run can be resumed
+      writeManifest(stageDir, { stage: stage.name, params, paramsHash, pages: ctx.pages });
+    }
     const start = Date.now();
     const extra = (await stage.run(ctx, { stageDir, params })) || {};
     writeManifest(stageDir, {

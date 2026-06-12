@@ -138,6 +138,59 @@ export const DEFAULT_CONFIG = {
     bookName: 'book.pdf',
     coverName: 'cover.pdf',
   },
+  markdown: {
+    // Text+vision Gemini model. gemini-3-flash-preview is the cheaper
+    // alternative if pro quality is not needed for the listings.
+    model: 'gemini-3-pro-preview',
+    // Book pages (the 4-digit page ids) to transcribe, e.g. "12-181".
+    // "all" sends every page and lets the model [SKIP] non-body pages
+    // (title, imprint, TOC, preface).
+    bodyPages: 'all',
+    // Long edge of the JPEG uploaded per page; the figure crops always come
+    // from the full-resolution PNG.
+    maxInputPx: 2304,
+    // Parallel Gemini calls (429s are retried with backoff anyway).
+    concurrency: 3,
+    temperature: 0.1,
+    // Padding around figure crops, in pixels at scan resolution.
+    figurePadPx: 12,
+    outName: 'book.md',
+    // Write the request to debug/ and skip the API call (no key required).
+    dryRun: false,
+    prompt: [
+      'You are transcribing one scanned page of a German book that teaches Sinclair ZX Spectrum',
+      'BASIC programming. Convert the page into GitHub-flavored Markdown.',
+      '',
+      'Rules:',
+      '- Transcribe ONLY the body content: headings, paragraphs, lists, tables, BASIC program',
+      '  listings, screen output and figures.',
+      '- OMIT the page number and the running head/page title. If the page contains nothing but',
+      '  front matter (title page, imprint, table of contents, preface) or is blank, output',
+      '  exactly [SKIP] and nothing else.',
+      '- Keep the original German wording, spelling and punctuation exactly as printed.',
+      '  Never translate, never paraphrase, never modernize.',
+      '- Headings: # for chapter titles, ## for sections, ### for subsections. Do not invent',
+      '  headings that are not printed on the page.',
+      '- BASIC program listings go into fenced code blocks with language `basic`. Preserve line',
+      '  numbers, spacing and special characters exactly as printed. Screen output, keyboard',
+      '  dialogs or error messages that are not program listings go into fenced code blocks with',
+      '  language `text`.',
+      '- BASIC keywords, variables or expressions mentioned inside a sentence are wrapped in',
+      '  `backticks`.',
+      '- Join words that are hyphenated across a line break (German Silbentrennung), and join the',
+      '  lines of a paragraph into flowing text. Keep hyphens that belong to the word itself.',
+      '- Tables become GitHub Markdown tables.',
+      '- For every figure, diagram, screenshot or photo emit a placeholder on its own line:',
+      '  [FIGURE ymin,xmin,ymax,xmax: caption] where the coordinates are the bounding box of the',
+      '  figure on the page, normalized to 0-1000 with the origin at the top-left. Put the printed',
+      '  caption (if any) into the placeholder and nowhere else; leave it empty if there is none.',
+      '  Do not describe the figure in the text.',
+      '- If the LAST paragraph or code block of this page visibly continues on the next page, end',
+      '  your output with [CONT] on its own line. If the FIRST paragraph or code block continues',
+      '  from the previous page, start your output with [CONT] on its own line.',
+      '- Output raw Markdown only: no commentary, no surrounding code fence.',
+    ].join('\n'),
+  },
   report: {
     thumbWidth: 360,
   },

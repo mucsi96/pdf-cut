@@ -10,6 +10,10 @@ scanned two-pages-per-sheet at 600 DPI and produces:
   text with grayscale illustrations preserved.
 - `output/cover.pdf` — the wrap-around cover (back + spine + front) recreated
   **in color** by Gemini (`gemini-3-pro-image-preview`) as a single landscape page.
+- `output/book.md` + `output/images/` — *(opt-in)* the book body transcribed to
+  Markdown by Gemini vision: German text with hyphenation repaired, BASIC
+  listings as fenced code blocks, figures cropped out of the full-resolution
+  scans; front matter, TOC, page numbers and running heads dropped.
 
 ## Pipeline
 
@@ -24,6 +28,7 @@ scanned two-pages-per-sheet at 600 DPI and produces:
 | 70 | `inpaint` | LaMa (via iopaint, CPU) on 768 px patches around each hole — one batch call, results pasted back | patch before/after pairs, page with patch boxes |
 | 80 | `report` | static **HTML report**: every stage for every page side by side | `work/report.html` |
 | 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata | `pdfinfo` summary in the log |
+| 95 | `markdown` | **opt-in** (one Gemini call per page, never part of a default run): transcribes each cleaned page to GitHub-flavored Markdown — body text only (page numbers / running heads / front matter dropped), BASIC listings as ` ```basic ` fences, figures cropped from the full-res scan into `output/images/`, paragraphs and listings stitched across page breaks → `output/book.md` | per-page raw model output + token usage, `prompt.txt` |
 
 Every stage writes its results to its own `work/NN-stage/` directory and only
 reads the previous stage's directory, so **any stage can be re-run and tuned in
@@ -50,6 +55,25 @@ podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env pdf-cut run
 
 No Gemini key? Use `--skip-cover`, or `--set cover.dryRun=true` to just inspect
 the request that would be sent.
+
+### Markdown conversion (after the pipeline has run)
+
+```bash
+# whole book; the model skips front matter / TOC pages on its own:
+podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env pdf-cut markdown
+
+# or pin the body explicitly by book page number (cheaper, deterministic):
+podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env \
+  pdf-cut markdown --body-pages 12-181
+```
+
+Writes `output/book.md` and `output/images/`. Per-page transcriptions are
+cached in `work/95-markdown/` — an interrupted run resumes where it stopped,
+and only `--force` (or changed parameters) re-pays for already-transcribed
+pages. Spot-check `work/95-markdown/page-NNNN.md` against `work/report.html`;
+to redo a single page, delete its `.md` file and re-run. The default model is
+`gemini-3-pro-preview` (best on the BASIC listings); switch with
+`--set markdown.model=gemini-3-flash-preview` to convert cheaper.
 
 ### VS Code tasks (Terminal → Run Task…)
 
@@ -89,6 +113,7 @@ Useful per-page overrides:
 ```
 pdfcut run [--input <pdf>] [--pages 1-3,7] [--stages a,b | --from s --to s]
            [--set stage.key=value]... [--force] [--skip-cover] [--cover-variants n]
+pdfcut markdown [--body-pages 12-181] [--set markdown.key=value]... [--force]
 pdfcut report          # regenerate work/report.html
 pdfcut stages          # list stages
 pdfcut clean-work [--from <stage>]
