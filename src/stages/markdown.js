@@ -288,7 +288,8 @@ async function detectFigureBoxes({ apiKey, model, prompt, maxInputPx, pagePng, l
 
 /**
  * Parse the detection model's JSON answer into [ymin,xmin,ymax,xmax] arrays.
- * Tolerates a ```json fence and both [{box: [...]}, …] and [[…], …] shapes.
+ * Tolerates a ```json fence, bare [[…], …] arrays, and the box key being
+ * "box", "box_2d" (Gemini's native convention) or "bbox".
  */
 export function parseBoxes(text) {
   let t = text.trim();
@@ -297,7 +298,7 @@ export function parseBoxes(text) {
   const data = JSON.parse(t);
   if (!Array.isArray(data)) throw new Error('detection result is not a JSON array');
   return data.map((entry) => {
-    const box = Array.isArray(entry) ? entry : entry?.box;
+    const box = Array.isArray(entry) ? entry : entry?.box ?? entry?.box_2d ?? entry?.bbox;
     if (!Array.isArray(box) || box.length !== 4 || box.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
       throw new Error(`bad box entry: ${JSON.stringify(entry).slice(0, 100)}`);
     }
