@@ -12,8 +12,9 @@ scanned two-pages-per-sheet at 600 DPI and produces:
   **in color** by Gemini (`gemini-3-pro-image-preview`) as a single landscape page.
 - `output/book.md` + `output/images/` — *(opt-in)* the book body transcribed to
   Markdown by Gemini vision: German text with hyphenation repaired, BASIC
-  listings as fenced code blocks, figures cropped out of the full-resolution
-  scans; front matter, TOC, page numbers and running heads dropped.
+  listings as fenced code blocks, every figure recreated **in color** and
+  straightened by the image model (raw scan crops kept in debug/); front
+  matter, TOC, page numbers and running heads dropped.
 
 ## Pipeline
 
@@ -67,14 +68,19 @@ podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env \
   pdf-cut markdown --body-pages 12-181
 ```
 
-Writes `output/book.md` and `output/images/`. Per-page transcriptions are
-cached in `work/95-markdown/` — an interrupted run resumes where it stopped,
-and a page is only re-sent to Gemini when its `.md` is missing or a parameter
-that affects transcription (model, prompt, …) changed; `--force` redoes
-everything. Spot-check `work/95-markdown/page-NNNN.md` against
-`work/report.html`; to redo a single page, delete its `.md` file and re-run.
-The default model is
-`gemini-3.1-pro-preview` (best on the BASIC listings); switch with
+Writes `output/book.md` and `output/images/`. Every figure is recreated in
+color (and straightened) by `markdown.figureModel`; the raw scan crops stay in
+`work/95-markdown/debug/…-scan.png` for comparison, and
+`--set markdown.figureRecreate=false` keeps the raw crops instead.
+
+Per-page transcriptions are cached in `work/95-markdown/` — an interrupted run
+resumes where it stopped, and a page is only re-sent to Gemini when its `.md`
+is missing or a parameter that affects it changed (figure-parameter changes
+redo only the figures, reusing the cached text); `--force` redoes everything.
+Spot-check `work/95-markdown/page-NNNN.md` against `work/report.html`; to redo
+a single page, delete its `.md` file and re-run — same for a single figure in
+`work/95-markdown/images/`. The default text model is `gemini-3.1-pro-preview`
+(best on the BASIC listings); switch with
 `--set markdown.model=gemini-3.5-flash` to convert cheaper.
 
 ### VS Code tasks (Terminal → Run Task…)

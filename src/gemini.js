@@ -6,6 +6,22 @@
 
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+export const SUPPORTED_ASPECT_RATIOS = ['21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'];
+
+export function closestAspectRatio(actual) {
+  let best = SUPPORTED_ASPECT_RATIOS[0];
+  let bestDiff = Infinity;
+  for (const r of SUPPORTED_ASPECT_RATIOS) {
+    const [w, h] = r.split(':').map(Number);
+    const diff = Math.abs(w / h - actual);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = r;
+    }
+  }
+  return best;
+}
+
 async function postWithRetry({ url, apiKey, body, log }) {
   const maxAttempts = 4;
   let lastErr;

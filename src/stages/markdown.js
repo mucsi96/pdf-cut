@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
-import { generateText, buildTextRequestBody } from '../gemini.js';
+import { generateText, generateImage, buildTextRequestBody, closestAspectRatio } from '../gemini.js';
 import { hashParams } from '../manifest.js';
 import { parsePageRange } from '../pages.js';
 
@@ -22,8 +22,14 @@ export const alwaysRun = true;
 
 /** Hash of only the parameters that change what Gemini returns for a page. */
 export function transcriptionHash(params) {
-  const { model, prompt, temperature, maxInputPx, figurePadPx } = params;
-  return hashParams({ model, prompt, temperature, maxInputPx, figurePadPx });
+  const { model, prompt, temperature, maxInputPx } = params;
+  return hashParams({ model, prompt, temperature, maxInputPx });
+}
+
+/** Hash of only the parameters that change the extracted/recreated figures. */
+export function figureHash(params) {
+  const { figurePadPx, figureRecreate, figureModel, figureImageSize, figurePrompt } = params;
+  return hashParams({ figurePadPx, figureRecreate, figureModel, figureImageSize, figurePrompt });
 }
 
 /**
@@ -73,40 +79,68 @@ export async function run_(ctx, { stageDir, params }) {
   const apiKey = process.env.GEMINI_API_KEY;
   fs.writeFileSync(path.join(stageDir, 'debug', 'prompt.txt'), params.prompt);
   const txHash = transcriptionHash(params);
+  const figHash = figureHash(params);
+  const figureOpts = params.figureRecreate
+    ? { apiKey, model: params.figureModel, imageSize: params.figureImageSize, prompt: params.figurePrompt }
+    : null;
 
   let cached = 0;
   let transcribed = 0;
+  let refigured = 0;
   const transcribePage = async (id) => {
     const mdFile = path.join(stageDir, `page-${id}.md`);
+    const rawFile = path.join(stageDir, 'debug', `page-${id}-raw.md`);
     const metaFile = path.join(stageDir, 'debug', `page-${id}-meta.json`);
-    if (fs.existsSync(mdFile) && readJson(metaFile)?.txHash === txHash) {
+    const meta = readJson(metaFile);
+    const txOk = fs.existsSync(mdFile) && fs.existsSync(rawFile) && meta?.txHash === txHash;
+    const figsOk = meta?.figHash === figHash
+      && (meta?.figures || []).every((f) => fs.existsSync(path.join(imagesDir, f)));
+    if (txOk && figsOk) {
       cached++;
       return;
     }
-    if (!apiKey) {
-      throw new Error('markdown: GEMINI_API_KEY is not set. Use --set markdown.dryRun=true, or provide the key via .env');
-    }
     const pagePng = path.join(srcDir, `page-${id}.png`);
-    const jpeg = await pageJpeg(pagePng, params.maxInputPx);
-    const { text, meta } = await generateText({
-      apiKey,
-      model: params.model,
-      prompt: params.prompt,
-      imageBase64: jpeg.toString('base64'),
-      mimeType: 'image/jpeg',
-      temperature: params.temperature,
+    let text;
+    let usage;
+    if (txOk) {
+      // text transcription is current — only the figures need a refresh
+      text = fs.readFileSync(rawFile, 'utf8');
+      usage = meta;
+      refigured++;
+    } else {
+      if (!apiKey) {
+        throw new Error('markdown: GEMINI_API_KEY is not set. Use --set markdown.dryRun=true, or provide the key via .env');
+      }
+      const jpeg = await pageJpeg(pagePng, params.maxInputPx);
+      ({ text, meta: usage } = await generateText({
+        apiKey,
+        model: params.model,
+        prompt: params.prompt,
+        imageBase64: jpeg.toString('base64'),
+        mimeType: 'image/jpeg',
+        temperature: params.temperature,
+        log: ctx.log,
+      }));
+      fs.writeFileSync(rawFile, text);
+      transcribed++;
+    }
+    const { md, files } = await extractFigures(text, {
+      id,
+      pagePng,
+      imagesDir,
+      debugDir: path.join(stageDir, 'debug'),
+      padPx: params.figurePadPx,
+      recreate: figureOpts,
       log: ctx.log,
     });
-    fs.writeFileSync(path.join(stageDir, 'debug', `page-${id}-raw.md`), text);
-    fs.writeFileSync(metaFile, JSON.stringify({ txHash, ...meta }, null, 2));
-    const md = await extractFigures(text, { id, pagePng, imagesDir, padPx: params.figurePadPx });
     fs.writeFileSync(mdFile, md);
-    transcribed++;
-    ctx.log(`  markdown: page ${id} done (${transcribed + cached}/${pageIds.length})`);
+    fs.writeFileSync(metaFile, JSON.stringify({ ...usage, txHash, figHash, figures: files }, null, 2));
+    ctx.log(`  markdown: page ${id} done (${transcribed + refigured + cached}/${pageIds.length})`);
   };
 
   await pool(pageIds, Math.max(1, params.concurrency || 1), transcribePage);
   if (cached) ctx.log(`  markdown: ${cached} page(s) reused from previous run`);
+  if (refigured) ctx.log(`  markdown: ${refigured} page(s) refreshed figures only (text reused)`);
 
   // ── Merge per-page markdown into the final book ───────────────────────
   const pages = pageIds.map((id) => ({ id, md: fs.readFileSync(path.join(stageDir, `page-${id}.md`), 'utf8') }));
@@ -132,11 +166,15 @@ const FIGURE_RE = /^\[FIGURE\s+(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?::\
 /**
  * Replace [FIGURE ymin,xmin,ymax,xmax: caption] placeholders (coordinates
  * normalized to 0–1000, top-left origin) with markdown image links, cropping
- * each region out of the full-resolution page PNG.
+ * each region out of the full-resolution page PNG. With `recreate` set, the
+ * crop is recreated in color (straightened) by the Gemini image model; the
+ * raw scan crop is kept in debug/ for comparison. Returns the rewritten
+ * markdown and the list of figure file names it references.
  */
-export async function extractFigures(text, { id, pagePng, imagesDir, padPx = 0 }) {
+export async function extractFigures(text, { id, pagePng, imagesDir, debugDir, padPx = 0, recreate = null, log = () => {} }) {
   const matches = [...text.matchAll(FIGURE_RE)];
-  if (!matches.length) return normalizeOutput(text);
+  const files = [];
+  if (!matches.length) return { md: normalizeOutput(text), files };
   const { width: W, height: H } = await sharp(pagePng).metadata();
   let out = text;
   let n = 0;
@@ -151,17 +189,52 @@ export async function extractFigures(text, { id, pagePng, imagesDir, padPx = 0 }
     const fileName = `page-${id}-fig-${n}.png`;
     const validBox = ymax > ymin && xmax > xmin && ((xmax - xmin) / 1000) * W >= 8 && ((ymax - ymin) / 1000) * H >= 8;
     if (validBox) {
-      await sharp(pagePng)
-        .extract({ left, top, width: right - left, height: bottom - top })
-        .png({ compressionLevel: 6 })
-        .toFile(path.join(imagesDir, fileName));
+      const crop = sharp(pagePng).extract({ left, top, width: right - left, height: bottom - top });
+      const finalPng = path.join(imagesDir, fileName);
+      if (recreate) {
+        // keep the scan crop in debug/ and put the color recreation in images/
+        const scanCrop = path.join(debugDir, `page-${id}-fig-${n}-scan.png`);
+        await crop.png({ compressionLevel: 6 }).toFile(scanCrop);
+        await recreateFigure({ scanCrop, finalPng, width: right - left, height: bottom - top, recreate, log });
+      } else {
+        await crop.png({ compressionLevel: 6 }).toFile(finalPng);
+      }
+      files.push(fileName);
       // function replacement: captions may contain `$` (BASIC string variables)
       out = out.replace(m[0], () => `![${caption}](images/${fileName})${caption ? `\n\n*${caption}*` : ''}`);
     } else {
       out = out.replace(m[0], () => (caption ? `*${caption}*` : ''));
     }
   }
-  return normalizeOutput(out);
+  return { md: normalizeOutput(out), files };
+}
+
+/**
+ * Send a scan crop to the Gemini image model and write the color recreation
+ * to finalPng. A refused/failed recreation falls back to the raw scan crop
+ * (delete the figure file in images/ and re-run to retry just that figure).
+ */
+async function recreateFigure({ scanCrop, finalPng, width, height, recreate, log }) {
+  if (!recreate.apiKey) {
+    throw new Error('markdown: GEMINI_API_KEY is not set (needed for figureRecreate). Use --set markdown.figureRecreate=false, or provide the key via .env');
+  }
+  const inputJpeg = await sharp(scanCrop).jpeg({ quality: 90 }).toBuffer();
+  try {
+    const { buffer } = await generateImage({
+      apiKey: recreate.apiKey,
+      model: recreate.model,
+      prompt: recreate.prompt,
+      imageBase64: inputJpeg.toString('base64'),
+      mimeType: 'image/jpeg',
+      aspectRatio: closestAspectRatio(width / height),
+      imageSize: recreate.imageSize,
+      log,
+    });
+    await sharp(buffer).png({ compressionLevel: 6 }).toFile(finalPng);
+  } catch (err) {
+    log(`  markdown: figure recreation failed (${err.message.replace(/\s+/g, ' ').slice(0, 200)}) — keeping the raw scan crop for ${path.basename(finalPng)}`);
+    fs.copyFileSync(scanCrop, finalPng);
+  }
 }
 
 /** Strip accidental ```markdown wrappers and close unbalanced fences. */

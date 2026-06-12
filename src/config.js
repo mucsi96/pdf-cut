@@ -14,7 +14,7 @@ export const DEFAULT_CONFIG = {
     // Which PDF scan page holds the wrap-around cover; 0 = input has no
     // cover scan (e.g. already-split single-page scans).
     scanPage: 1,
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3.1-flash-image',
     imageSize: '4K',
     // "auto" picks the closest supported Gemini aspect ratio from the scan.
     aspectRatio: 'auto',
@@ -154,6 +154,19 @@ export const DEFAULT_CONFIG = {
     temperature: 0.1,
     // Padding around figure crops, in pixels at scan resolution.
     figurePadPx: 12,
+    // Recreate every figure in color with the image model (straightened,
+    // German labels preserved); false keeps the raw grayscale scan crops.
+    figureRecreate: true,
+    figureModel: 'gemini-3.1-flash-image',
+    figureImageSize: '2K',
+    figurePrompt:
+      'Recreate this scanned black-and-white figure from a 1980s German book about Sinclair ' +
+      'ZX Spectrum BASIC programming as a clean, full-color illustration. The scan may be ' +
+      'slightly rotated or warped: output a perfectly straight, level version. Reproduce ALL ' +
+      'German text and labels exactly as in the scan — do not invent, translate or omit any ' +
+      'text. Keep the layout and proportions of the original drawing. Vivid but tasteful ' +
+      'colors in early-1980s home computer style. Output a flat image on a plain white ' +
+      'background with no mockup, no perspective, no added borders or decorations.',
     outName: 'book.md',
     // Write the request to debug/ and skip the API call (no key required).
     dryRun: false,

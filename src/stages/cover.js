@@ -1,15 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
-import { generateImage, buildRequestBody } from '../gemini.js';
+import { generateImage, buildRequestBody, closestAspectRatio } from '../gemini.js';
 import { pad } from '../pages.js';
 
 export const name = 'cover';
 export const dir = '20-cover';
 export const configKey = 'cover';
 export const title = 'Recreate the wrap-around cover in color with Gemini';
-
-const SUPPORTED_RATIOS = ['21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16'];
 
 export async function run_(ctx, { stageDir, params }) {
   const scanPage = params.scanPage ?? 1;
@@ -24,7 +22,7 @@ export async function run_(ctx, { stageDir, params }) {
   }
 
   const meta = await sharp(scanPath).metadata();
-  const aspectRatio = params.aspectRatio === 'auto' ? closestRatio(meta.width / meta.height) : params.aspectRatio;
+  const aspectRatio = params.aspectRatio === 'auto' ? closestAspectRatio(meta.width / meta.height) : params.aspectRatio;
 
   // Downscale the scan for upload.
   const inputJpeg = path.join(stageDir, 'debug', 'cover-input.jpg');
@@ -83,20 +81,6 @@ export async function run_(ctx, { stageDir, params }) {
   fs.copyFileSync(path.join(stageDir, variants[selected - 1]), path.join(stageDir, 'cover.png'));
   ctx.log(`  cover: selected variant ${selected} → cover.png`);
   return { variants, selected, aspectRatio };
-}
-
-function closestRatio(actual) {
-  let best = SUPPORTED_RATIOS[0];
-  let bestDiff = Infinity;
-  for (const r of SUPPORTED_RATIOS) {
-    const [w, h] = r.split(':').map(Number);
-    const diff = Math.abs(w / h - actual);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = r;
-    }
-  }
-  return best;
 }
 
 export { run_ as run };
