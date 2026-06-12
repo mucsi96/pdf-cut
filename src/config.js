@@ -53,6 +53,7 @@ export const DEFAULT_CONFIG = {
     mode: 'smart-binarize',
     flatten: true,
     bgKernelPx: 81,
+    bgFloor: 128,
     whitePoint: 210,
     margins: { top: 60, bottom: 60, left: 60, right: 60 },
     maxBorderIntrusionPx: 250,
@@ -76,8 +77,10 @@ export const DEFAULT_CONFIG = {
     maxDiamMm: 8.0,
     circularityMin: 0.65,
     edgeCircularityMin: 0.4,
-    // Punch holes sit near the gutter: search the inner fraction of the page
-    // width (left edge of right-hand pages, right edge of left-hand pages).
+    // Where hole centers may sit (union; set a fraction to 0 to disable):
+    // a band across the top of the page (top-margin punching, hanging files)
+    // and a strip along the gutter (ring binders).
+    searchTopFrac: 0.18,
     searchInnerWidthFrac: 0.18,
     maskDilatePx: 24,
   },

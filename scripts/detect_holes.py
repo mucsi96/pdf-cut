@@ -25,6 +25,26 @@ def page_is_left(page_id):
     return int(page_id) % 2 == 0
 
 
+def search_regions(p, sw, sh, page_id):
+    """Union of regions (in detection-scale px) where hole centers may sit.
+
+    Books are punched either through the top margin (hanging files) or along
+    the gutter (ring binders) — cover both by default, each disableable by
+    setting its fraction to 0.
+    """
+    regs = []
+    top = p.get("searchTopFrac", 0.18)
+    if top > 0:
+        regs.append((0, 0, sw, sh * top))
+    inner = p.get("searchInnerWidthFrac", 0.18)
+    if inner > 0:
+        if page_is_left(page_id):
+            regs.append((sw * (1.0 - inner), 0, sw, sh))  # right strip
+        else:
+            regs.append((0, 0, sw * inner, sh))  # left strip
+    return regs
+
+
 def detect(gray, page_id, p, dpi):
     h, w = gray.shape
     small = cv2.resize(gray, None, fx=1.0 / DS, fy=1.0 / DS, interpolation=cv2.INTER_AREA)
@@ -45,11 +65,7 @@ def detect(gray, page_id, p, dpi):
     dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN,
                             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_open, k_open)))
 
-    inner_frac = p["searchInnerWidthFrac"]
-    if page_is_left(page_id):
-        region = (sw * (1.0 - inner_frac), 0, sw, sh)  # right strip
-    else:
-        region = (0, 0, sw * inner_frac, sh)  # left strip
+    regions = search_regions(p, sw, sh, page_id)
 
     contours, _ = cv2.findContours(dark, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     accepted, rejected = [], []
@@ -65,11 +81,13 @@ def detect(gray, page_id, p, dpi):
         perim = cv2.arcLength(c, True)
         circularity = 4 * math.pi * area / (perim * perim) if perim > 0 else 0
         x, y, bw, bh = cv2.boundingRect(c)
-        touches_inner = (x == 0 and not page_is_left(page_id)) or (x + bw >= sw and page_is_left(page_id))
-        circ_min = p["edgeCircularityMin"] if touches_inner else p["circularityMin"]
+        # Holes clipped by the split cut or the page edge are partial discs —
+        # relax the circularity requirement for blobs touching any border.
+        touches_edge = x <= 0 or y <= 0 or x + bw >= sw or y + bh >= sh
+        circ_min = p["edgeCircularityMin"] if touches_edge else p["circularityMin"]
 
         cand = {"cx": cx * DS, "cy": cy * DS, "r": r_eq * DS, "circularity": round(circularity, 3)}
-        if not (region[0] <= cx <= region[2] and region[1] <= cy <= region[3]):
+        if not any(rx0 <= cx <= rx1 and ry0 <= cy <= ry1 for rx0, ry0, rx1, ry1 in regions):
             cand["reason"] = "outside search region"
             rejected.append(cand)
         elif r_eq < min_r:
@@ -84,7 +102,7 @@ def detect(gray, page_id, p, dpi):
         else:
             accepted.append(cand)
 
-    return accepted, rejected, region
+    return accepted, rejected, regions
 
 
 def main():
@@ -104,7 +122,7 @@ def main():
         gray = cv2.imread(os.path.join(args.input_dir, fname), cv2.IMREAD_GRAYSCALE)
         h, w = gray.shape
 
-        accepted, rejected, region = detect(gray, page_id, p, args.dpi)
+        accepted, rejected, regions = detect(gray, page_id, p, args.dpi)
         if accepted:
             holes_all[page_id] = accepted
         if rejected:
@@ -119,8 +137,9 @@ def main():
 
         # Debug overlay.
         vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        rx0, ry0, rx1, ry1 = [int(v * DS) for v in region]
-        cv2.rectangle(vis, (rx0, ry0), (rx1 - 1, ry1 - 1), (0, 200, 0), 8)
+        for region in regions:
+            rx0, ry0, rx1, ry1 = [int(v * DS) for v in region]
+            cv2.rectangle(vis, (rx0, ry0), (rx1 - 1, ry1 - 1), (0, 200, 0), 8)
         for hole in accepted:
             cv2.circle(vis, (int(hole["cx"]), int(hole["cy"])), int(hole["r"]), (0, 0, 255), 10)
             cv2.putText(vis, f"r={hole['r']:.0f} c={hole['circularity']}",

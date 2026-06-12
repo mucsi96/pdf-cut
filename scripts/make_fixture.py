@@ -53,10 +53,14 @@ def make_spread(left_page, angle_deg, seed):
     draw = ImageDraw.Draw(img)
     draw_text_page(draw, 0, left_page, seed)
     draw_text_page(draw, W // 2, left_page + 1, seed + 1)
-    # Punch holes: black discs at the gutter, overlapping text.
-    for cy in (H // 4, 3 * H // 4):
-        draw.ellipse((W // 2 - 220, cy - 72, W // 2 - 76, cy + 72), fill=10)
-        draw.ellipse((W // 2 + 80, cy + 180 - 72, W // 2 + 224, cy + 180 + 72), fill=10)
+    # Punch holes: top-margin pair like a hanging-file punched book (one per
+    # page, overlapping the header area), plus a pair at the gutter.
+    for cx in (int(W * 0.37), int(W * 0.63)):
+        cy = int(H * 0.06)
+        draw.ellipse((cx - 72, cy - 72, cx + 72, cy + 72), fill=10)
+    cy = H // 2
+    draw.ellipse((W // 2 - 220, cy - 72, W // 2 - 76, cy + 72), fill=10)
+    draw.ellipse((W // 2 + 80, cy + 180 - 72, W // 2 + 224, cy + 180 + 72), fill=10)
     # Slight rotation (the defect deskew must fix).
     img = img.rotate(angle_deg, resample=Image.BICUBIC, fillcolor=255)
     # Scanner residue: dark fuzzy strips on the outer edges + corner blob.

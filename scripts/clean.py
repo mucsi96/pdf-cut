@@ -20,14 +20,18 @@ import numpy as np
 from PIL import Image
 
 
-def flatten_illumination(gray, kernel_px):
+def flatten_illumination(gray, kernel_px, bg_floor=128):
     small = cv2.resize(gray, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
     k = max(3, (kernel_px // 4) | 1)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     bg_small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, kernel)
     bg_small = cv2.GaussianBlur(bg_small, (0, 0), k / 4)
     bg = cv2.resize(bg_small, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_LINEAR)
-    bg = np.maximum(bg, 1)
+    # Dark blobs larger than the closing kernel (punch holes, solid black
+    # fills) leak into the background estimate; dividing by it would hollow
+    # them out. Shadows/vignetting are far lighter than ink, so flooring the
+    # estimate keeps shadow removal while leaving real ink untouched.
+    bg = np.maximum(bg, bg_floor)
     out = np.clip(gray.astype(np.float32) / bg.astype(np.float32) * 255.0, 0, 255)
     return out.astype(np.uint8), bg
 
@@ -153,7 +157,7 @@ def main():
         original = gray.copy()
 
         if p.get("flatten", True):
-            gray, bg = flatten_illumination(gray, p["bgKernelPx"])
+            gray, bg = flatten_illumination(gray, p["bgKernelPx"], p.get("bgFloor", 128))
             save_jpg(bg, os.path.join(args.debug_dir, f"background-page-{page_id}.jpg"))
 
         gray = kill_border(gray, p["margins"], p["maxBorderIntrusionPx"])
