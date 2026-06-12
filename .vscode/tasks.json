@@ -1,0 +1,85 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "shell": { "executable": "/bin/bash", "args": ["-c"] }
+  },
+  "tasks": [
+    {
+      "label": "pdfcut: build image",
+      "type": "shell",
+      "command": "podman build -t pdf-cut .",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "pdfcut: run on test pages",
+      "type": "shell",
+      "command": "ENVF=''; [ -f .env ] && ENVF='--env-file .env'; podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" $ENVF pdf-cut run --input '${input:inputPdf}' --pages '${input:pages}'",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "pdfcut: run single stage (dev mounts, force)",
+      "type": "shell",
+      "command": "ENVF=''; [ -f .env ] && ENVF='--env-file .env'; podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" -v \"$PWD/src:/app/src:Z\" -v \"$PWD/scripts:/app/scripts:Z\" $ENVF pdf-cut run --input '${input:inputPdf}' --stages '${input:stage}' --force",
+      "problemMatcher": []
+    },
+    {
+      "label": "pdfcut: run from stage onward (dev mounts, force)",
+      "type": "shell",
+      "command": "ENVF=''; [ -f .env ] && ENVF='--env-file .env'; podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" -v \"$PWD/src:/app/src:Z\" -v \"$PWD/scripts:/app/scripts:Z\" $ENVF pdf-cut run --input '${input:inputPdf}' --from '${input:stage}' --force",
+      "problemMatcher": []
+    },
+    {
+      "label": "pdfcut: full book run",
+      "type": "shell",
+      "command": "ENVF=''; [ -f .env ] && ENVF='--env-file .env'; podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" $ENVF pdf-cut run --input '${input:inputPdf}'",
+      "problemMatcher": []
+    },
+    {
+      "label": "pdfcut: open HTML report",
+      "type": "shell",
+      "command": "if command -v wslview >/dev/null; then wslview work/report.html; elif command -v explorer.exe >/dev/null; then explorer.exe \"$(wslpath -w work/report.html)\"; else xdg-open work/report.html; fi",
+      "problemMatcher": []
+    },
+    {
+      "label": "pdfcut: clean work dir",
+      "type": "shell",
+      "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" pdf-cut clean-work",
+      "problemMatcher": []
+    },
+    {
+      "label": "pdfcut: slice input PDF (page range → small PDF)",
+      "type": "shell",
+      "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" pdf-cut slice --input '${input:inputPdf}' --pages '${input:pages}'",
+      "problemMatcher": []
+    },
+    {
+      "label": "pdfcut: create synthetic test PDF (input/test.pdf)",
+      "type": "shell",
+      "command": "podman run --rm --userns=keep-id -v \"$PWD:/data:Z\" --entrypoint python3 pdf-cut /app/scripts/make_fixture.py /data/input/test.pdf",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "pages",
+      "type": "promptString",
+      "description": "PDF scan pages to process (page 1 = cover)",
+      "default": "1-3"
+    },
+    {
+      "id": "inputPdf",
+      "type": "promptString",
+      "description": "Input PDF path (relative to workspace)",
+      "default": "input/book.pdf"
+    },
+    {
+      "id": "stage",
+      "type": "pickString",
+      "description": "Pipeline stage",
+      "options": ["extract", "cover", "split", "deskew", "clean", "detect-holes", "inpaint", "report", "assemble"],
+      "default": "clean"
+    }
+  ]
+}

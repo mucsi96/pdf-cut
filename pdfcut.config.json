@@ -1,0 +1,65 @@
+{
+  "extract": {
+    "mode": "auto",
+    "dpi": "auto"
+  },
+  "cover": {
+    "model": "gemini-3-pro-image-preview",
+    "imageSize": "4K",
+    "aspectRatio": "auto",
+    "variants": 1,
+    "selectedVariant": 1,
+    "minLongEdge": 3000,
+    "dryRun": false
+  },
+  "split": {
+    "centerRatio": 0.5,
+    "overlapPx": 0,
+    "firstBookPage": 2,
+    "order": "left-first",
+    "overrides": {}
+  },
+  "deskew": {
+    "maxAngle": 3.0,
+    "coarseStep": 0.25,
+    "fineStep": 0.05,
+    "downsample": 8,
+    "overrides": {}
+  },
+  "clean": {
+    "mode": "preserve",
+    "margins": {
+      "top": 60,
+      "bottom": 60,
+      "left": 60,
+      "right": 60
+    },
+    "maxBorderIntrusionPx": 250,
+    "minSpeckArea": 60,
+    "contentDelta": 25,
+    "contentDilatePx": 60,
+    "contentFeatherPx": 8,
+    "paperMargin": 15
+  },
+  "detect": {
+    "darkThreshold": 70,
+    "minDiamMm": 2.5,
+    "maxDiamMm": 9.0,
+    "circularityMin": 0.65,
+    "edgeCircularityMin": 0.4,
+    "voterCircularityMin": 0.7,
+    "clusterTolMm": 8.0,
+    "clusterMinFrac": 0.3,
+    "minPagesForCluster": 4,
+    "searchTopFrac": 0.18,
+    "searchInnerWidthFrac": 0.18,
+    "maskDilatePx": 24
+  },
+  "inpaint": {
+    "patchSize": 768
+  },
+  "assemble": {
+    "bookName": "book.pdf",
+    "coverName": "cover.pdf"
+  }
+}

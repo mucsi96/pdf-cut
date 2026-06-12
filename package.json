@@ -1,0 +1,19 @@
+{
+  "name": "pdf-cut",
+  "version": "0.1.0",
+  "description": "Restore a 2-up scanned book PDF: split, deskew, clean, AI-inpaint punch holes, AI-recreate cover, reassemble at print quality",
+  "type": "module",
+  "bin": {
+    "pdfcut": "src/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/cli.js"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "sharp": "^0.33.5"
+  }
+}

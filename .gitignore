@@ -1,3 +1,5 @@
+*.pdf
+
 # Logs
 logs
 *.log
@@ -141,3 +143,11 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# pdf-cut data dirs
+input/
+work/
+output/
+
+__pycache__/
+work-*/
