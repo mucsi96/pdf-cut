@@ -13,6 +13,7 @@ const collect = (v, acc) => (acc.push(v), acc);
 
 program
   .command('run', { isDefault: true })
+  .allowExcessArguments(false) // unknown subcommands must error, not start the pipeline
   .description('Run the pipeline (or a subset of stages)')
   .option('--input <pdf>', 'input scanned PDF', 'input/book.pdf')
   .option('--work <dir>', 'work directory (per-stage outputs + debug images)', 'work')
