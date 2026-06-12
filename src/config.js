@@ -140,9 +140,10 @@ export const DEFAULT_CONFIG = {
     coverName: 'cover.pdf',
   },
   markdown: {
-    // Text+vision Gemini model. gemini-3.5-flash is the cheaper
-    // alternative if pro quality is not needed for the listings.
-    model: 'gemini-3.1-pro-preview',
+    // Text+vision model for the transcription. claude-* models go through
+    // the Anthropic API (ANTHROPIC_API_KEY), anything else through Gemini
+    // (GEMINI_API_KEY) — e.g. gemini-3.1-pro-preview or gemini-3.5-flash.
+    model: 'claude-opus-4-8',
     // Book pages (the 4-digit page ids) to transcribe, e.g. "12-181".
     // "all" sends every page and lets the model [SKIP] non-body pages
     // (title, imprint, TOC, preface).
@@ -150,8 +151,9 @@ export const DEFAULT_CONFIG = {
     // Long edge of the JPEG uploaded per page; the figure crops always come
     // from the full-resolution PNG.
     maxInputPx: 2304,
-    // Parallel Gemini calls (429s are retried with backoff anyway).
+    // Parallel transcription calls (429s are retried with backoff anyway).
     concurrency: 3,
+    // Gemini only — Anthropic Opus models don't accept sampling parameters.
     temperature: 0.1,
     // Padding around figure crops, in pixels at scan resolution.
     figurePadPx: 12,

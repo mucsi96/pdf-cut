@@ -63,7 +63,7 @@
     "coverName": "cover.pdf"
   },
   "markdown": {
-    "model": "gemini-3.1-pro-preview",
+    "model": "claude-opus-4-8",
     "bodyPages": "all",
     "concurrency": 3,
     "figureRecreate": true,

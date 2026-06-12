@@ -1,16 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
-import { generateText, generateImage, buildTextRequestBody, closestAspectRatio } from '../gemini.js';
+import { generateText as geminiGenerateText, generateImage, buildTextRequestBody, closestAspectRatio } from '../gemini.js';
+import { generateText as anthropicGenerateText, buildTranscriptionRequest } from '../anthropic.js';
 import { hashParams } from '../manifest.js';
 import { parsePageRange } from '../pages.js';
 
 export const name = 'markdown';
 export const dir = '95-markdown';
 export const configKey = 'markdown';
-export const title = 'Transcribe body pages to Markdown with Gemini (text + figures)';
-// Expensive (one Gemini call per page): never part of a range selection, only
-// runs when named explicitly (--stages markdown / `pdfcut markdown`).
+export const title = 'Transcribe body pages to Markdown (Claude Opus text + Gemini figures)';
+// Expensive (one vision-model call per page): never part of a range selection,
+// only runs when named explicitly (--stages markdown / `pdfcut markdown`).
 export const optIn = true;
 // Keep per-page results across runs so a crashed/interrupted book run resumes
 // instead of re-paying for every page. Staleness is tracked per page (see
@@ -33,7 +34,8 @@ export function figureHash(params) {
 }
 
 /**
- * One Gemini vision call per book page turns the final cleaned scan into
+ * One vision-model call per book page (claude-* → Anthropic, otherwise
+ * Gemini) turns the final cleaned scan into
  * GitHub-flavored Markdown: German body text with hyphenation repaired, BASIC
  * listings as ```basic fences, figures as [FIGURE ymin,xmin,ymax,xmax: caption]
  * placeholders that we crop out of the full-resolution page into PNG files.
@@ -61,27 +63,32 @@ export async function run_(ctx, { stageDir, params }) {
   const imagesDir = path.join(stageDir, 'images');
   fs.mkdirSync(imagesDir, { recursive: true });
 
+  // Transcription provider follows the model name: claude-* → Anthropic,
+  // anything else → Gemini. Figure recreation is always Gemini (image model).
+  const provider = /^claude/.test(params.model) ? 'anthropic' : 'gemini';
+
   if (params.dryRun) {
     const id = pageIds[0];
     const jpeg = await pageJpeg(path.join(srcDir, `page-${id}.png`), params.maxInputPx);
-    const body = buildTextRequestBody({
-      prompt: params.prompt,
-      imageBase64: `<${jpeg.toString('base64').length} base64 chars>`,
-      mimeType: 'image/jpeg',
-      temperature: params.temperature,
-    });
+    const placeholder = `<${jpeg.toString('base64').length} base64 chars>`;
+    const body = provider === 'anthropic'
+      ? buildTranscriptionRequest({ model: params.model, prompt: params.prompt, imageBase64: placeholder, mimeType: 'image/jpeg' })
+      : buildTextRequestBody({ prompt: params.prompt, imageBase64: placeholder, mimeType: 'image/jpeg', temperature: params.temperature });
     fs.writeFileSync(path.join(stageDir, 'debug', 'request.json'), JSON.stringify(body, null, 2));
     fs.writeFileSync(path.join(stageDir, 'debug', 'prompt.txt'), params.prompt);
-    ctx.log(`  markdown: dry run — request for page ${id} written to debug/request.json`);
-    return { dryRun: true };
+    ctx.log(`  markdown: dry run — ${provider} request for page ${id} written to debug/request.json`);
+    return { dryRun: true, provider };
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const txKey = provider === 'anthropic' ? anthropicKey : geminiKey;
+  const txKeyName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'GEMINI_API_KEY';
   fs.writeFileSync(path.join(stageDir, 'debug', 'prompt.txt'), params.prompt);
   const txHash = transcriptionHash(params);
   const figHash = figureHash(params);
   const figureOpts = params.figureRecreate
-    ? { apiKey, model: params.figureModel, imageSize: params.figureImageSize, prompt: params.figurePrompt }
+    ? { apiKey: geminiKey, model: params.figureModel, imageSize: params.figureImageSize, prompt: params.figurePrompt }
     : null;
 
   let cached = 0;
@@ -108,19 +115,28 @@ export async function run_(ctx, { stageDir, params }) {
       usage = meta;
       refigured++;
     } else {
-      if (!apiKey) {
-        throw new Error('markdown: GEMINI_API_KEY is not set. Use --set markdown.dryRun=true, or provide the key via .env');
+      if (!txKey) {
+        throw new Error(`markdown: ${txKeyName} is not set (needed for ${params.model}). Use --set markdown.dryRun=true, or provide the key via .env`);
       }
       const jpeg = await pageJpeg(pagePng, params.maxInputPx);
-      ({ text, meta: usage } = await generateText({
-        apiKey,
-        model: params.model,
-        prompt: params.prompt,
-        imageBase64: jpeg.toString('base64'),
-        mimeType: 'image/jpeg',
-        temperature: params.temperature,
-        log: ctx.log,
-      }));
+      const imageBase64 = jpeg.toString('base64');
+      ({ text, meta: usage } = provider === 'anthropic'
+        ? await anthropicGenerateText({
+            apiKey: txKey,
+            model: params.model,
+            prompt: params.prompt,
+            imageBase64,
+            mimeType: 'image/jpeg',
+          })
+        : await geminiGenerateText({
+            apiKey: txKey,
+            model: params.model,
+            prompt: params.prompt,
+            imageBase64,
+            mimeType: 'image/jpeg',
+            temperature: params.temperature,
+            log: ctx.log,
+          }));
       fs.writeFileSync(rawFile, text);
       transcribed++;
     }

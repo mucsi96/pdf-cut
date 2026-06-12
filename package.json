@@ -13,6 +13,7 @@
     "start": "node src/cli.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
     "commander": "^12.1.0",
     "sharp": "^0.33.5"
   }
