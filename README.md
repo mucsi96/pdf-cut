@@ -9,7 +9,7 @@ scanned two-pages-per-sheet at 600 DPI and produces:
   residue, punch holes repaired with AI inpainting (LaMa), crisp anti-aliased
   text with grayscale illustrations preserved.
 - `output/cover.pdf` — the wrap-around cover (back + spine + front) recreated
-  **in color** by Gemini (`gemini-3-pro-image-preview`) as a single landscape page.
+  **in color** by Gemini (`gemini-3-pro-image`, Nano Banana Pro) as a single landscape page.
 - `output/book.md` + `output/images/` — *(opt-in)* the book body transcribed to
   Markdown by Gemini vision: German text with hyphenation repaired, BASIC
   listings as fenced code blocks, every figure recreated **in color** and
@@ -29,7 +29,7 @@ scanned two-pages-per-sheet at 600 DPI and produces:
 | 70 | `inpaint` | LaMa (via iopaint, CPU) on 768 px patches around each hole — one batch call, results pasted back | patch before/after pairs, page with patch boxes |
 | 80 | `report` | static **HTML report**: every stage for every page side by side | `work/report.html` |
 | 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata | `pdfinfo` summary in the log |
-| 95 | `markdown` | **opt-in** (one Gemini call per page, never part of a default run): transcribes each cleaned page to GitHub-flavored Markdown — body text only (page numbers / running heads / front matter dropped), BASIC listings as ` ```basic ` fences, figures cropped from the full-res scan into `output/images/`, paragraphs and listings stitched across page breaks → `output/book.md` | per-page raw model output + token usage, `prompt.txt` |
+| 95 | `markdown` | **opt-in** (one Gemini call per page, never part of a default run): transcribes each cleaned page to GitHub-flavored Markdown — body text only (page numbers / running heads / front matter dropped), BASIC listings as ` ```basic ` fences, figures cropped from the full-res scan and recreated in color (`gemini-3-pro-image`) into `output/images/`, paragraphs/listings/tables stitched across page breaks → `output/book.md` | per-page raw model output + token usage, raw scan crops of the figures, `prompt.txt` |
 
 Every stage writes its results to its own `work/NN-stage/` directory and only
 reads the previous stage's directory, so **any stage can be re-run and tuned in

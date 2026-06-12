@@ -14,7 +14,8 @@ export const DEFAULT_CONFIG = {
     // Which PDF scan page holds the wrap-around cover; 0 = input has no
     // cover scan (e.g. already-split single-page scans).
     scanPage: 1,
-    model: 'gemini-3.1-flash-image',
+    // Nano Banana Pro, stable GA id (the -preview id shuts down 2026-06-25).
+    model: 'gemini-3-pro-image',
     imageSize: '4K',
     // "auto" picks the closest supported Gemini aspect ratio from the scan.
     aspectRatio: 'auto',
@@ -157,7 +158,8 @@ export const DEFAULT_CONFIG = {
     // Recreate every figure in color with the image model (straightened,
     // German labels preserved); false keeps the raw grayscale scan crops.
     figureRecreate: true,
-    figureModel: 'gemini-3.1-flash-image',
+    // Nano Banana Pro; gemini-3.1-flash-image is the faster/cheaper option.
+    figureModel: 'gemini-3-pro-image',
     figureImageSize: '2K',
     figurePrompt:
       'Recreate this scanned black-and-white figure from a 1980s German book about Sinclair ' +
