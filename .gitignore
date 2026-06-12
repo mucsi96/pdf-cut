@@ -148,3 +148,4 @@ work/
 output/
 
 __pycache__/
+work-*/
