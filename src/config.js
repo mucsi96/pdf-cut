@@ -157,6 +157,19 @@ export const DEFAULT_CONFIG = {
     temperature: 0.1,
     // Padding around figure crops, in pixels at scan resolution.
     figurePadPx: 12,
+    // Claude transcriptions get their figure bounding boxes from this Gemini
+    // model (Gemini localizes figures much better than Opus); the
+    // transcription's own coordinates are only the fallback. Gemini
+    // transcription models keep using their inline boxes (no extra call).
+    figureDetectModel: 'gemini-3.1-pro-preview',
+    figureDetectPrompt:
+      'You are given one scanned page of a German book about Sinclair ZX Spectrum BASIC ' +
+      'programming. Find every figure on the page: drawings, diagrams, screenshots and photos. ' +
+      'Do NOT include body text paragraphs, tables, BASIC code listings, page numbers or ' +
+      'running heads. Return a JSON array with one entry per figure, in reading order from top ' +
+      'to bottom: [{"box": [ymin, xmin, ymax, xmax]}] where the coordinates are normalized to ' +
+      '0-1000 with the origin at the top-left. Return [] if the page has no figures. ' +
+      'Output raw JSON only — no commentary, no code fence.',
     // Recreate every figure in color with the image model (straightened,
     // German labels preserved); false keeps the raw grayscale scan crops.
     figureRecreate: true,

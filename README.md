@@ -82,8 +82,10 @@ a single page, delete its `.md` file and re-run — same for a single figure in
 `work/95-markdown/images/`. The default text model is Anthropic's
 `claude-opus-4-8` (needs `ANTHROPIC_API_KEY` in `.env`); any `claude-*` model
 goes through the Anthropic API, anything else through Gemini — e.g.
-`--set markdown.model=gemini-3.5-flash` to convert cheaper. Figure recreation
-always uses Gemini (`GEMINI_API_KEY`).
+`--set markdown.model=gemini-3.5-flash` to convert cheaper. Figures always go
+through Gemini (`GEMINI_API_KEY`): Claude marks where figures are, but their
+bounding boxes come from `markdown.figureDetectModel` (Gemini localizes far
+better), and the color recreation uses `markdown.figureModel`.
 
 ### VS Code tasks (Terminal → Run Task…)
 

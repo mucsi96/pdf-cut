@@ -29,8 +29,8 @@ export function transcriptionHash(params) {
 
 /** Hash of only the parameters that change the extracted/recreated figures. */
 export function figureHash(params) {
-  const { figurePadPx, figureRecreate, figureModel, figureImageSize, figurePrompt } = params;
-  return hashParams({ figurePadPx, figureRecreate, figureModel, figureImageSize, figurePrompt });
+  const { figurePadPx, figureRecreate, figureModel, figureImageSize, figurePrompt, figureDetectModel, figureDetectPrompt } = params;
+  return hashParams({ figurePadPx, figureRecreate, figureModel, figureImageSize, figurePrompt, figureDetectModel, figureDetectPrompt });
 }
 
 /**
@@ -90,6 +90,11 @@ export async function run_(ctx, { stageDir, params }) {
   const figureOpts = params.figureRecreate
     ? { apiKey: geminiKey, model: params.figureModel, imageSize: params.figureImageSize, prompt: params.figurePrompt }
     : null;
+  // Opus marks the figures but localizes them poorly — let Gemini find the
+  // boxes on pages where the transcription contains figure placeholders.
+  const detectOpts = provider === 'anthropic'
+    ? { apiKey: geminiKey, model: params.figureDetectModel, prompt: params.figureDetectPrompt, maxInputPx: params.maxInputPx }
+    : null;
 
   let cached = 0;
   let transcribed = 0;
@@ -147,6 +152,7 @@ export async function run_(ctx, { stageDir, params }) {
       debugDir: path.join(stageDir, 'debug'),
       padPx: params.figurePadPx,
       recreate: figureOpts,
+      detect: detectOpts,
       log: ctx.log,
     });
     fs.writeFileSync(mdFile, md);
@@ -182,21 +188,38 @@ const FIGURE_RE = /^\[FIGURE\s+(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?::\
 /**
  * Replace [FIGURE ymin,xmin,ymax,xmax: caption] placeholders (coordinates
  * normalized to 0–1000, top-left origin) with markdown image links, cropping
- * each region out of the full-resolution page PNG. With `recreate` set, the
- * crop is recreated in color (straightened) by the Gemini image model; the
- * raw scan crop is kept in debug/ for comparison. Returns the rewritten
- * markdown and the list of figure file names it references.
+ * each region out of the full-resolution page PNG. With `detect` set, the
+ * boxes come from a Gemini detection call instead of the placeholder
+ * coordinates (paired in reading order; placeholder coordinates are the
+ * fallback). With `recreate` set, the crop is recreated in color
+ * (straightened) by the Gemini image model; the raw scan crop is kept in
+ * debug/ for comparison. Returns the rewritten markdown and the list of
+ * figure file names it references.
  */
-export async function extractFigures(text, { id, pagePng, imagesDir, debugDir, padPx = 0, recreate = null, log = () => {} }) {
+export async function extractFigures(text, { id, pagePng, imagesDir, debugDir, padPx = 0, recreate = null, detect = null, log = () => {} }) {
   const matches = [...text.matchAll(FIGURE_RE)];
   const files = [];
   if (!matches.length) return { md: normalizeOutput(text), files };
+  let boxes = null;
+  if (detect) {
+    if (!detect.apiKey) {
+      throw new Error('markdown: GEMINI_API_KEY is not set (needed for figure detection). Provide the key via .env');
+    }
+    boxes = await detectFigureBoxes({ ...detect, pagePng, log });
+    if (boxes.length !== matches.length) {
+      log(`  markdown: page ${id}: Gemini found ${boxes.length} figure(s) but the transcription has ${matches.length} placeholder(s) — using Gemini's boxes`);
+    }
+  }
   const { width: W, height: H } = await sharp(pagePng).metadata();
   let out = text;
   let n = 0;
   for (const m of matches) {
     n++;
-    const [ymin, xmin, ymax, xmax] = [m[1], m[2], m[3], m[4]].map(Number);
+    // with detection on, Gemini's boxes are authoritative — a placeholder
+    // without a detected box degrades to caption-only text below
+    const [ymin, xmin, ymax, xmax] = boxes
+      ? (boxes[n - 1] ?? [0, 0, 0, 0])
+      : [m[1], m[2], m[3], m[4]].map(Number);
     const caption = (m[5] || '').trim();
     const left = Math.max(0, Math.round((xmin / 1000) * W) - padPx);
     const top = Math.max(0, Math.round((ymin / 1000) * H) - padPx);
@@ -227,30 +250,59 @@ export async function extractFigures(text, { id, pagePng, imagesDir, debugDir, p
 
 /**
  * Send a scan crop to the Gemini image model and write the color recreation
- * to finalPng. A refused/failed recreation falls back to the raw scan crop
- * (delete the figure file in images/ and re-run to retry just that figure).
+ * to finalPng. Failures abort the run (cached pages are kept; re-running
+ * resumes, and deleting a figure file in images/ retries just that figure).
  */
 async function recreateFigure({ scanCrop, finalPng, width, height, recreate, log }) {
   if (!recreate.apiKey) {
     throw new Error('markdown: GEMINI_API_KEY is not set (needed for figureRecreate). Use --set markdown.figureRecreate=false, or provide the key via .env');
   }
   const inputJpeg = await sharp(scanCrop).jpeg({ quality: 90 }).toBuffer();
-  try {
-    const { buffer } = await generateImage({
-      apiKey: recreate.apiKey,
-      model: recreate.model,
-      prompt: recreate.prompt,
-      imageBase64: inputJpeg.toString('base64'),
-      mimeType: 'image/jpeg',
-      aspectRatio: closestAspectRatio(width / height),
-      imageSize: recreate.imageSize,
-      log,
-    });
-    await sharp(buffer).png({ compressionLevel: 6 }).toFile(finalPng);
-  } catch (err) {
-    log(`  markdown: figure recreation failed (${err.message.replace(/\s+/g, ' ').slice(0, 200)}) — keeping the raw scan crop for ${path.basename(finalPng)}`);
-    fs.copyFileSync(scanCrop, finalPng);
-  }
+  const { buffer } = await generateImage({
+    apiKey: recreate.apiKey,
+    model: recreate.model,
+    prompt: recreate.prompt,
+    imageBase64: inputJpeg.toString('base64'),
+    mimeType: 'image/jpeg',
+    aspectRatio: closestAspectRatio(width / height),
+    imageSize: recreate.imageSize,
+    log,
+  });
+  await sharp(buffer).png({ compressionLevel: 6 }).toFile(finalPng);
+}
+
+/** Ask the Gemini detection model for figure bounding boxes on a page. */
+async function detectFigureBoxes({ apiKey, model, prompt, maxInputPx, pagePng, log }) {
+  const jpeg = await pageJpeg(pagePng, maxInputPx);
+  const { text } = await geminiGenerateText({
+    apiKey,
+    model,
+    prompt,
+    imageBase64: jpeg.toString('base64'),
+    mimeType: 'image/jpeg',
+    temperature: 0,
+    log,
+  });
+  return parseBoxes(text);
+}
+
+/**
+ * Parse the detection model's JSON answer into [ymin,xmin,ymax,xmax] arrays.
+ * Tolerates a ```json fence and both [{box: [...]}, …] and [[…], …] shapes.
+ */
+export function parseBoxes(text) {
+  let t = text.trim();
+  const fence = t.match(/^```(?:json)?\n([\s\S]*?)\n?```$/);
+  if (fence) t = fence[1].trim();
+  const data = JSON.parse(t);
+  if (!Array.isArray(data)) throw new Error('detection result is not a JSON array');
+  return data.map((entry) => {
+    const box = Array.isArray(entry) ? entry : entry?.box;
+    if (!Array.isArray(box) || box.length !== 4 || box.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
+      throw new Error(`bad box entry: ${JSON.stringify(entry).slice(0, 100)}`);
+    }
+    return box.map(Math.round);
+  });
 }
 
 /** Strip accidental ```markdown wrappers and close unbalanced fences. */

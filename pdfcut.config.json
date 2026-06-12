@@ -67,6 +67,7 @@
     "bodyPages": "all",
     "concurrency": 3,
     "figureRecreate": true,
-    "figureModel": "gemini-3-pro-image"
+    "figureModel": "gemini-3-pro-image",
+    "figureDetectModel": "gemini-3.1-pro-preview"
   }
 }
