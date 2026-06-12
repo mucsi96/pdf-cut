@@ -57,6 +57,13 @@ export const DEFAULT_CONFIG = {
     lineMaxHeightPx: 30, // at estimateDpi; drops illustrations/holes
     minInkPx: 800,       // below this: blank page, keep angle 0
     minScoreRatio: 1.15, // peak/median sharpness; below: keep angle 0
+    // Dewarp: trace text baselines after rotation and remove smooth paper
+    // curvature in the same single resampling pass.
+    dewarp: true,
+    dewarpMinLines: 4,
+    dewarpMinMm: 0.25,   // smaller residual waviness: leave the page alone
+    dewarpMaxMm: 2.0,    // displacement cap (bad fits cannot wreck a page)
+    lineMinWidthFrac: 0.5,
     // Per-page fixed angle in degrees (skips estimation), e.g. { "0017": -0.4 }
     overrides: {},
   },
@@ -75,6 +82,10 @@ export const DEFAULT_CONFIG = {
     contentDilatePx: 60,   // safety halo merged around all content
     contentFeatherPx: 8,
     paperMargin: 15,       // highlight clip starts this far below paper level
+    edgeBandMm: 6.0,           // components fully inside this edge band = residue
+    edgeStripBandMm: 10.0,     // tall narrow blobs within this of a vertical edge = residue
+    despeckleBandMm: 10.0,     // margin band where small specks are removed
+    despeckleMaxAreaMm2: 1.0,  // "small" = below this area (page numbers are ~6 mm²)
     // grayscale / smart-binarize parameters
     flatten: true,
     bgKernelPx: 81,

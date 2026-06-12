@@ -92,6 +92,37 @@ def find_paper_level(img):
     return int(np.argmax(hist[128:]) + 128)
 
 
+def trim_vertical_borders(img, paper, p, dpi):
+    """Column-profile border trim (unpaper-style): scan-edge residue (page
+    edge shadow, neighboring page) forms columns whose ink density is far
+    above anything text produces (~5%). Walk inward from the left/right
+    edges, whiten dirty columns, stop at a clean run. Vertical edges only:
+    a horizontal variant would eat header/footer rules."""
+    h, w = img.shape
+    max_trim = int(p.get("borderTrimMaxMm", 12.0) / 25.4 * dpi)
+    dirty_frac = p.get("borderTrimDirtyFrac", 0.10)
+    clean_run = max(2, int(1.5 / 25.4 * dpi))
+    out = img.copy()
+    fracs = (img < paper - 20).mean(axis=0)
+    trims = {}
+    for side in ("left", "right"):
+        rng = range(0, min(max_trim, w)) if side == "left" else range(w - 1, max(w - max_trim, -1), -1)
+        clean, cut = 0, None
+        for idx, pos in enumerate(rng):
+            if fracs[pos] > dirty_frac:
+                cut, clean = idx, 0
+            elif (clean := clean + 1) >= clean_run:
+                break
+        if cut is not None:
+            n = cut + 1
+            trims[side] = n
+            if side == "left":
+                out[:, :n] = 255
+            else:
+                out[:, w - n:] = 255
+    return out, trims
+
+
 def preserve_clean(original, p):
     """Content-preserving mode: detect content blocks (text, illustrations,
     anything meaningfully darker than paper), keep every content pixel exactly
@@ -101,6 +132,10 @@ def preserve_clean(original, p):
     h, w = original.shape
     paper = find_paper_level(original)
     clip_hi = max(200, paper - p.get("paperMargin", 15))
+
+    original, trims = trim_vertical_borders(original, paper, p, p["_dpi"])
+    if trims:
+        print(f"clean: border trim {trims}")
 
     # Soft highlight clip: paper -> white; ink (anything below clip_hi-soft)
     # is mathematically unchanged.
@@ -118,6 +153,15 @@ def preserve_clean(original, p):
     keep = np.zeros_like(ink)
     max_intrusion = p["maxBorderIntrusionPx"] / 4.0
     min_area = p["minSpeckArea"] / 16.0
+    # Residue often sits a few mm INSIDE the page edge (deskew pads the border
+    # white): drop components fully contained in a narrow edge band, and small
+    # specks inside a wider margin band. Real content near the edge (page
+    # numbers, running heads) is far larger than despeckleMaxAreaMm2, while
+    # sentence periods deep in the text block are never touched.
+    px_per_mm = p["_dpi"] / 25.4 / 4.0
+    edge_band = p.get("edgeBandMm", 6.0) * px_per_mm
+    despeckle_band = p.get("despeckleBandMm", 10.0) * px_per_mm
+    speck_max = p.get("despeckleMaxAreaMm2", 1.0) * px_per_mm * px_per_mm
     for i in range(1, n):
         x, y, bw, bh, area = stats[i]
         touches = x == 0 or y == 0 or x + bw == sw or y + bh == sh
@@ -127,6 +171,19 @@ def preserve_clean(original, p):
                 y + bh if y == 0 else 0, sh - y if y + bh == sh else 0)
             if intrusion <= max_intrusion:
                 continue  # border residue
+        def fully_within(band):
+            return (x + bw <= band or x >= sw - band or
+                    y + bh <= band or y >= sh - band)
+        if fully_within(edge_band):
+            continue  # residue near the page edge
+        # Tall, narrow blobs hugging a vertical edge are scan residue (page
+        # edge shadow / neighboring page): no book content looks like that.
+        # Horizontal edges are exempt — header/footer rules are content.
+        strip_band = p.get("edgeStripBandMm", 10.0) * px_per_mm
+        if (x + bw <= strip_band or x >= sw - strip_band) and bh >= 0.25 * sh:
+            continue  # vertical residue strip
+        if area < speck_max and fully_within(despeckle_band):
+            continue  # speck in the margin band
         if area < min_area:
             continue  # isolated speck
         keep[labels == i] = 1
@@ -240,6 +297,7 @@ def main():
     ap.add_argument("--params", required=True)
     args = ap.parse_args()
     p = scale_params(json.loads(args.params), args.dpi)
+    p["_dpi"] = args.dpi
 
     pages = sorted(f for f in os.listdir(args.input_dir) if f.startswith("page-") and f.endswith(".png"))
     for fname in pages:

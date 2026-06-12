@@ -25,8 +25,15 @@ import numpy as np
 from PIL import Image
 
 
+SIDES = {}
+
+
 def page_is_left(page_id):
-    """Even book pages are left pages (verso) -> gutter on the RIGHT side."""
+    """Binding side from the split manifest; falls back to page-number parity
+    (even = left/verso) when no side info exists."""
+    side = SIDES.get(page_id)
+    if side:
+        return side == "left"
     return int(page_id) % 2 == 0
 
 
@@ -106,11 +113,11 @@ def gather_candidates(gray, page_id, p, dpi):
 
 
 def cluster_voters(all_cands, tol_px, min_frac):
-    """Cluster voters separately per page parity: recto/verso pages mirror the
-    punch position, so left and right pages get their own clusters."""
+    """Cluster voters separately per binding side: recto/verso pages mirror
+    the punch position, so left and right pages get their own clusters."""
     qualified = []
-    for parity in (0, 1):
-        pages_p = [pid for pid in all_cands if int(pid) % 2 == parity]
+    for side_left in (True, False):
+        pages_p = [pid for pid in all_cands if page_is_left(pid) == side_left]
         need = max(2, math.ceil(min_frac * len(pages_p)))
         clusters = []
         for page_id in pages_p:
@@ -128,7 +135,7 @@ def cluster_voters(all_cands, tol_px, min_frac):
                     ys = [m[1]["cy"] for m in hit["members"]]
                     hit["cx"], hit["cy"] = float(np.median(xs)), float(np.median(ys))
                 else:
-                    clusters.append({"cx": c["cx"], "cy": c["cy"], "parity": parity,
+                    clusters.append({"cx": c["cx"], "cy": c["cy"], "left": side_left,
                                      "members": [(page_id, c)]})
         for cl in clusters:
             pages = {m[0] for m in cl["members"]}
@@ -146,9 +153,11 @@ def main():
     ap.add_argument("--output-dir", required=True)
     ap.add_argument("--debug-dir", required=True)
     ap.add_argument("--dpi", type=int, default=600)
+    ap.add_argument("--sides", default="{}", help='{"0002": "left"|"right", ...} from the split manifest')
     ap.add_argument("--params", required=True)
     args = ap.parse_args()
     p = json.loads(args.params)
+    SIDES.update(json.loads(args.sides))
     px_per_mm = args.dpi / 25.4
 
     pages = sorted(f for f in os.listdir(args.input_dir) if f.startswith("page-") and f.endswith(".png"))
@@ -168,7 +177,7 @@ def main():
     if use_clusters:
         clusters = cluster_voters(all_cands, tol_px, p.get("clusterMinFrac", 0.3))
         for cl in clusters:
-            print(f"detect-holes: punch position ({'left' if cl['parity'] == 0 else 'right'} pages) "
+            print(f"detect-holes: punch position ({'left' if cl['left'] else 'right'} pages) "
                   f"at ({cl['cx']:.0f},{cl['cy']:.0f}) r={cl['r']:.0f}px "
                   f"seen on {cl['pages']}/{cl['pagesTotal']} pages")
         if not clusters:
@@ -184,7 +193,7 @@ def main():
     for fname, page_id in zip(pages, page_ids):
         h, w = shapes[page_id]
         cands = all_cands[page_id]
-        page_clusters = [cl for cl in clusters if cl["parity"] == int(page_id) % 2]
+        page_clusters = [cl for cl in clusters if cl["left"] == page_is_left(page_id)]
         holes = []
         if clusters:
             used = set()
