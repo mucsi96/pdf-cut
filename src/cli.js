@@ -70,22 +70,16 @@ program
   .option('--output <pdf>', 'output PDF (default: <input>-pages-<range>.pdf)')
   .action(async (opts) => {
     const { run } = await import('./exec.js');
-    const os = await import('node:os');
-    const pages = parsePageRange(opts.pages);
+    parsePageRange(opts.pages); // validate syntax
     const output = opts.output
       || opts.input.replace(/\.pdf$/i, '') + `-pages-${opts.pages.replace(/[^\d,-]/g, '')}.pdf`;
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pdfcut-slice-'));
-    try {
-      await run('pdfseparate', ['-f', String(pages[0]), '-l', String(pages[pages.length - 1]),
-        opts.input, path.join(tmp, 'p-%d.pdf')], { quiet: true });
-      const parts = pages.map((p) => path.join(tmp, `p-${p}.pdf`));
-      const missing = parts.filter((f) => !fs.existsSync(f));
-      if (missing.length) throw new Error(`pages out of range: ${missing.length} of ${parts.length} not found in input`);
-      await run('pdfunite', [...parts, output], { quiet: true });
-      console.log(`wrote ${output} (${parts.length} pages)`);
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
+    // qpdf copies the page objects (and their compressed image streams)
+    // byte-for-byte; pdfseparate/pdfunite would re-encode JPEG scans as Flate
+    // and blow the file up ~10x.
+    await run('qpdf', [opts.input, '--pages', '.', opts.pages, '--', output], { quiet: true });
+    const { stdout } = await run('pdfinfo', [output], { capture: true, quiet: true });
+    const n = stdout.match(/^Pages:\s+(\d+)/m)?.[1];
+    console.log(`wrote ${output} (${n} pages, ${(fs.statSync(output).size / 1e6).toFixed(1)} MB)`);
   });
 
 program

@@ -41,6 +41,10 @@ RUN mkdir -p /opt/models/torch/hub/checkpoints \
       https://github.com/Sanster/models/releases/download/add_big_lama/big-lama.pt
 
 # ── App ────────────────────────────────────────────────────────────────────────
+# qpdf (used by `pdfcut slice`) is installed here, after the heavy torch/LaMa
+# layers, so adding it didn't invalidate their build cache.
+RUN apt-get update && apt-get install -y --no-install-recommends qpdf \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
