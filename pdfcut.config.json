@@ -27,20 +27,14 @@
     "overrides": {}
   },
   "clean": {
-    "mode": "smart-binarize",
-    "flatten": true,
-    "bgKernelPx": 81,
-    "whitePoint": 210,
+    "mode": "preserve",
     "margins": { "top": 60, "bottom": 60, "left": 60, "right": 60 },
     "maxBorderIntrusionPx": 250,
     "minSpeckArea": 60,
-    "despeckleBandPx": 350,
-    "sauvolaWindowPx": 61,
-    "sauvolaK": 0.2,
-    "sauvolaDarkFloor": 100,
-    "edgeSoftness": 10,
-    "picDensity": 0.35,
-    "picMinAreaPx": 40000
+    "contentDelta": 25,
+    "contentDilatePx": 60,
+    "contentFeatherPx": 8,
+    "paperMargin": 15
   },
   "detect": {
     "darkThreshold": 70,

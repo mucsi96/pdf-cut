@@ -48,20 +48,30 @@ export const DEFAULT_CONFIG = {
     overrides: {},
   },
   clean: {
+    // "preserve" (default): detect content blocks and keep every content
+    //   pixel exactly as scanned; whiten only border residue, isolated
+    //   specks, shadows between blocks and the paper tint. Safest for print.
     // "smart-binarize": crisp B/W text with anti-aliased edges, illustrations
-    // kept as untouched grayscale. "grayscale": flatten + highlight clip only.
-    mode: 'smart-binarize',
+    //   kept as grayscale. "grayscale": flatten + highlight clip only.
+    mode: 'preserve',
+    margins: { top: 60, bottom: 60, left: 60, right: 60 },
+    maxBorderIntrusionPx: 250,
+    minSpeckArea: 60,
+    // preserve parameters
+    contentDelta: 25,      // "content" = darker than paper by this much
+    contentDilatePx: 60,   // safety halo merged around all content
+    contentFeatherPx: 8,
+    paperMargin: 15,       // highlight clip starts this far below paper level
+    // grayscale / smart-binarize parameters
     flatten: true,
     bgKernelPx: 81,
     bgFloor: 128,
     whitePoint: 210,
-    margins: { top: 60, bottom: 60, left: 60, right: 60 },
-    maxBorderIntrusionPx: 250,
-    minSpeckArea: 60,
     despeckleBandPx: 350,
-    // smart-binarize parameters
+    autoLevels: true,
+    inkPercentile: 5,
     sauvolaWindowPx: 61,
-    sauvolaK: 0.2,
+    sauvolaK: 0.12,
     sauvolaDarkFloor: 100,
     edgeSoftness: 10,
     picMidLow: 50,

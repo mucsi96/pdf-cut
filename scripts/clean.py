@@ -87,6 +87,63 @@ def despeckle_margins(img, band_px, min_area):
     return out
 
 
+def find_paper_level(img):
+    hist = cv2.calcHist([img], [0], None, [256], [0, 256]).ravel()
+    return int(np.argmax(hist[128:]) + 128)
+
+
+def preserve_clean(original, p):
+    """Content-preserving mode: detect content blocks (text, illustrations,
+    anything meaningfully darker than paper), keep every content pixel exactly
+    as scanned, and whiten everything else — border residue, isolated specks,
+    shadows between blocks, and the paper tint (soft highlight clip only,
+    far above the ink level, so glyphs are never touched)."""
+    h, w = original.shape
+    paper = find_paper_level(original)
+    clip_hi = max(200, paper - p.get("paperMargin", 15))
+
+    # Soft highlight clip: paper -> white; ink (anything below clip_hi-soft)
+    # is mathematically unchanged.
+    img = original.astype(np.float32)
+    soft = 12.0
+    t = np.clip((img - (clip_hi - soft)) / (2.0 * soft), 0, 1)
+    t = t * t * (3 - 2 * t)
+    base = np.clip(img + t * (255.0 - img), 0, 255).astype(np.uint8)
+
+    # Content mask on a 1/4 downsample.
+    small = cv2.resize(original, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
+    sh, sw = small.shape
+    ink = (small < paper - p.get("contentDelta", 25)).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    keep = np.zeros_like(ink)
+    max_intrusion = p["maxBorderIntrusionPx"] / 4.0
+    min_area = p["minSpeckArea"] / 16.0
+    for i in range(1, n):
+        x, y, bw, bh, area = stats[i]
+        touches = x == 0 or y == 0 or x + bw == sw or y + bh == sh
+        if touches:
+            intrusion = max(
+                x + bw if x == 0 else 0, sw - x if x + bw == sw else 0,
+                y + bh if y == 0 else 0, sh - y if y + bh == sh else 0)
+            if intrusion <= max_intrusion:
+                continue  # border residue
+        if area < min_area:
+            continue  # isolated speck
+        keep[labels == i] = 1
+
+    # Merge glyphs into blocks and add a safety halo around all content.
+    dil = max(1, int(p.get("contentDilatePx", 60) / 4))
+    keep = cv2.dilate(keep, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dil + 1, 2 * dil + 1)))
+    mask = cv2.resize(keep, (w, h), interpolation=cv2.INTER_NEAREST).astype(np.float32)
+    feather = p.get("contentFeatherPx", 8)
+    if feather > 0:
+        mask = np.clip(cv2.GaussianBlur(mask, (0, 0), feather), 0, 1)
+
+    out = np.clip(mask * base.astype(np.float32) + (1.0 - mask) * 255.0, 0, 255).astype(np.uint8)
+    out = white_margins(out, p["margins"])
+    return out, mask, paper
+
+
 def detect_picture_regions(gray, params):
     """Mask (0..1 float, full res) of halftone/illustration regions."""
     ds = cv2.resize(gray, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
@@ -111,8 +168,26 @@ def detect_picture_regions(gray, params):
     return mask_full.astype(np.float32)
 
 
+def auto_levels(img, p):
+    """Per-page contrast normalization: map the ink level to black and the
+    paper peak to white. Faintly printed pages (light-gray text) would
+    otherwise sit above the Sauvola threshold and be erased."""
+    hist = cv2.calcHist([img], [0], None, [256], [0, 256]).ravel()
+    paper = int(np.argmax(hist[128:]) + 128)
+    dark = img[img < paper - 30]
+    if dark.size < 500:
+        return img, None  # effectively blank page
+    ink = int(np.percentile(dark, p.get("inkPercentile", 5)))
+    hi = paper - p.get("paperMargin", 15)
+    if hi - ink < 30:
+        return img, None
+    out = np.clip((img.astype(np.float32) - ink) / float(hi - ink), 0, 1)
+    return (out * 255).astype(np.uint8), {"ink": ink, "paper": paper}
+
+
 def soft_sauvola(gray, params):
-    """Sauvola threshold surface + smoothstep tone curve around it."""
+    """Sauvola threshold surface + smoothstep tone curve around it.
+    Returns (text_layer, threshold_surface)."""
     win = params["sauvolaWindowPx"] | 1
     k = params["sauvolaK"]
     img = gray.astype(np.float32)
@@ -126,7 +201,7 @@ def soft_sauvola(gray, params):
     s = max(1.0, float(params["edgeSoftness"]))
     t = np.clip((img - (threshold - s)) / (2.0 * s), 0, 1)
     t = t * t * (3 - 2 * t)  # smoothstep: anti-aliased glyph edges
-    return (t * 255.0).astype(np.uint8)
+    return (t * 255.0).astype(np.uint8), threshold.astype(np.uint8)
 
 
 def save_png(arr, path, dpi):
@@ -155,6 +230,25 @@ def main():
         page_id = fname[5:9]
         gray = cv2.imread(os.path.join(args.input_dir, fname), cv2.IMREAD_GRAYSCALE)
         original = gray.copy()
+        mode = p.get("mode", "preserve")
+
+        if mode == "preserve":
+            out, content_mask, paper = preserve_clean(original, p)
+            print(f"clean: page {page_id} paper level {paper}, "
+                  f"content {content_mask.mean() * 100:.0f}% of page")
+            # Debug: kept content tinted blue (same artifact name the report
+            # shows in its regions column).
+            vis = cv2.cvtColor(original, cv2.COLOR_GRAY2BGR).astype(np.float32)
+            vis[..., 0] = np.clip(vis[..., 0] + content_mask * 120, 0, 255)
+            vis[..., 1] -= content_mask * 40
+            vis[..., 2] -= content_mask * 40
+            save_jpg(np.clip(vis, 0, 255).astype(np.uint8),
+                     os.path.join(args.debug_dir, f"regions-page-{page_id}.jpg"))
+            save_changed_debug(original, out, args.debug_dir, page_id)
+            save_png(out, os.path.join(args.output_dir, fname), args.dpi)
+            side = np.hstack([original, out])
+            save_jpg(side, os.path.join(args.debug_dir, f"before-after-page-{page_id}.jpg"), width=1600)
+            continue
 
         if p.get("flatten", True):
             gray, bg = flatten_illumination(gray, p["bgKernelPx"], p.get("bgFloor", 128))
@@ -163,16 +257,26 @@ def main():
         gray = kill_border(gray, p["margins"], p["maxBorderIntrusionPx"])
         gray = despeckle_margins(gray, p["despeckleBandPx"], p["minSpeckArea"])
 
-        if p.get("mode", "smart-binarize") == "smart-binarize":
+        if mode == "smart-binarize":
             # Detect on the PRE-flatten image (flattening brightens halftones
             # out of the mid-tone band) and keep illustration regions from the
             # original so their tones survive untouched.
             pic_mask = detect_picture_regions(original, p)
             illus_layer = white_margins(original, p["margins"])
-            text_layer = soft_sauvola(gray, p)
+            norm = gray
+            levels = None
+            if p.get("autoLevels", True):
+                norm, levels = auto_levels(gray, p)
+            text_layer, threshold = soft_sauvola(norm, p)
             out = (pic_mask * illus_layer.astype(np.float32) +
                    (1.0 - pic_mask) * text_layer.astype(np.float32))
             out = np.clip(out, 0, 255).astype(np.uint8)
+            if levels:
+                print(f"clean: page {page_id} auto-levels ink={levels['ink']} paper={levels['paper']}")
+            # Debug: normalized input | Sauvola threshold surface | binarized
+            # result — shows exactly why a stroke survived or vanished.
+            save_jpg(np.hstack([norm, threshold, text_layer]),
+                     os.path.join(args.debug_dir, f"binarize-page-{page_id}.jpg"), width=2100)
             # Debug: detected illustration regions in blue.
             vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR).astype(np.float32)
             vis[..., 0] = np.clip(vis[..., 0] + pic_mask * 120, 0, 255)
@@ -188,19 +292,24 @@ def main():
 
         save_png(out, os.path.join(args.output_dir, fname), args.dpi)
 
-        # Debug: before/after + content-change mask. Background whitening would
-        # flag nearly every pixel, so only mark real ink changes:
-        # red = ink removed (watch for content loss!), blue = ink added.
         side = np.hstack([original, out])
         save_jpg(side, os.path.join(args.debug_dir, f"before-after-page-{page_id}.jpg"), width=1600)
-        removed = (original < 128) & (out > 192)
-        added = (original > 192) & (out < 128)
-        vis = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
-        vis[removed] = (0, 0, 255)
-        vis[added] = (255, 0, 0)
-        save_jpg(vis, os.path.join(args.debug_dir, f"changed-page-{page_id}.jpg"))
-        print(f"clean: page {page_id} done "
-              f"(ink removed {removed.mean() * 100:.2f}%, added {added.mean() * 100:.2f}%)")
+        save_changed_debug(original, out, args.debug_dir, page_id)
+
+
+def save_changed_debug(original, out, debug_dir, page_id):
+    """Content-change mask: red = ink removed (watch for content loss!),
+    blue = ink added. Background whitening is ignored on purpose — it would
+    flag nearly every pixel."""
+    delta = out.astype(np.int16) - original.astype(np.int16)
+    removed = (delta > 50) & (original < 210)  # catches faint ink too
+    added = (delta < -50) & (original > 150)
+    vis = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
+    vis[removed] = (0, 0, 255)
+    vis[added] = (255, 0, 0)
+    save_jpg(vis, os.path.join(debug_dir, f"changed-page-{page_id}.jpg"))
+    print(f"clean: page {page_id} done "
+          f"(ink removed {removed.mean() * 100:.2f}%, added {added.mean() * 100:.2f}%)")
 
 
 if __name__ == "__main__":

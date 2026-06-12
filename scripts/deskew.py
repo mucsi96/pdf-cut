@@ -26,7 +26,12 @@ def projection_score(binary, angle):
 def estimate_angle(gray, params):
     ds = params["downsample"]
     small = cv2.resize(gray, None, fx=1.0 / ds, fy=1.0 / ds, interpolation=cv2.INTER_AREA)
-    _, binary = cv2.threshold(small, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # Threshold relative to the paper level rather than Otsu: on faintly
+    # printed pages Otsu latches onto punch holes/edge residue and misses the
+    # light-gray text entirely.
+    hist = cv2.calcHist([small], [0], None, [256], [0, 256]).ravel()
+    paper = int(np.argmax(hist[128:]) + 128)
+    binary = (small < paper - params.get("contentDelta", 25)).astype(np.uint8)
     # Fuse characters into text lines so the profile has sharp peaks.
     binary = cv2.dilate(binary, cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1)))
     # Drop tall components (illustrations, punch holes, gutter shadows): only

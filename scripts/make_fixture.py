@@ -29,15 +29,15 @@ def font(size):
         return ImageFont.load_default()
 
 
-def draw_text_page(draw, x0, page_num, seed):
+def draw_text_page(draw, x0, page_num, seed, ink=0):
     rng = np.random.default_rng(seed)
     y = 320
-    draw.text((x0 + 1100, 140), str(page_num), font=font(70), fill=0)
-    draw.line((x0 + 220, 260, x0 + 2150, 260), fill=0, width=6)
+    draw.text((x0 + 1100, 140), str(page_num), font=font(70), fill=ink)
+    draw.line((x0 + 220, 260, x0 + 2150, 260), fill=ink, width=6)
     while y < H - 400:
         n = int(rng.integers(6, 10))
         line = " ".join(WORDS[int(rng.integers(0, len(WORDS) - 1))] for _ in range(n))
-        draw.text((x0 + 240, y), line[:60], font=font(64), fill=0)
+        draw.text((x0 + 240, y), line[:60], font=font(64), fill=ink)
         y += 110
     # A halftone-ish illustration block on some pages.
     if page_num % 3 == 0:
@@ -48,11 +48,12 @@ def draw_text_page(draw, x0, page_num, seed):
                 draw.rectangle((gx0 + xx, gy0 + yy, gx0 + xx + 7, gy0 + yy + 7), fill=v)
 
 
-def make_spread(left_page, angle_deg, seed):
+def make_spread(left_page, angle_deg, seed, right_ink=0):
     img = Image.new("L", (W, H), 255)
     draw = ImageDraw.Draw(img)
     draw_text_page(draw, 0, left_page, seed)
-    draw_text_page(draw, W // 2, left_page + 1, seed + 1)
+    # right_ink simulates a faintly printed page (light-gray text).
+    draw_text_page(draw, W // 2, left_page + 1, seed + 1, ink=right_ink)
     # Punch holes: top-margin pair like a hanging-file punched book (one per
     # page, overlapping the header area), plus a pair at the gutter.
     for cx in (int(W * 0.37), int(W * 0.63)):
@@ -90,7 +91,7 @@ def main():
     os.makedirs(os.path.dirname(out_pdf) or ".", exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         files = []
-        pages = [make_cover(), make_spread(2, 0.6, 1), make_spread(4, -0.8, 2), make_spread(6, 0.35, 3)]
+        pages = [make_cover(), make_spread(2, 0.6, 1), make_spread(4, -0.8, 2, right_ink=170), make_spread(6, 0.35, 3)]
         for i, page in enumerate(pages, 1):
             f = os.path.join(tmp, f"fixture-{i:02d}.png")
             page.save(f, dpi=(DPI, DPI))
