@@ -72,8 +72,8 @@ cached in `work/95-markdown/` — an interrupted run resumes where it stopped,
 and only `--force` (or changed parameters) re-pays for already-transcribed
 pages. Spot-check `work/95-markdown/page-NNNN.md` against `work/report.html`;
 to redo a single page, delete its `.md` file and re-run. The default model is
-`gemini-3-pro-preview` (best on the BASIC listings); switch with
-`--set markdown.model=gemini-3-flash-preview` to convert cheaper.
+`gemini-3.1-pro-preview` (best on the BASIC listings); switch with
+`--set markdown.model=gemini-3.5-flash` to convert cheaper.
 
 ### VS Code tasks (Terminal → Run Task…)
 

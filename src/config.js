@@ -139,9 +139,9 @@ export const DEFAULT_CONFIG = {
     coverName: 'cover.pdf',
   },
   markdown: {
-    // Text+vision Gemini model. gemini-3-flash-preview is the cheaper
+    // Text+vision Gemini model. gemini-3.5-flash is the cheaper
     // alternative if pro quality is not needed for the listings.
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3.1-pro-preview',
     // Book pages (the 4-digit page ids) to transcribe, e.g. "12-181".
     // "all" sends every page and lets the model [SKIP] non-body pages
     // (title, imprint, TOC, preface).
