@@ -8,6 +8,7 @@ FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends \
       poppler-utils imagemagick img2pdf \
       python3 python3-pip python3-venv \
+      libgl1 libglib2.0-0 \
       curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -25,7 +26,12 @@ RUN sed -i \
 #    OpenCV + iopaint (LaMa inpainting) ────────────────────────────────────────
 RUN python3 -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
- && /opt/venv/bin/pip install --no-cache-dir opencv-python-headless numpy pillow iopaint
+ && /opt/venv/bin/pip install --no-cache-dir numpy pillow iopaint
+# iopaint depends on full opencv-python (needs libGL); replace it with the
+# headless build so exactly one cv2 is installed and imports work everywhere.
+RUN /opt/venv/bin/pip uninstall -y opencv-python opencv-python-headless; \
+    /opt/venv/bin/pip install --no-cache-dir opencv-python-headless \
+ && /opt/venv/bin/python -c "import cv2, torch, PIL; print('cv2', cv2.__version__)"
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # ── Pre-bake the LaMa weights so the container runs offline (≈196 MB).
