@@ -210,6 +210,41 @@ export const DEFAULT_CONFIG = {
       '- Output raw Markdown only: no commentary, no surrounding code fence.',
     ].join('\n'),
   },
+  render: {
+    // Typography matched to the original: early-80s German computer books
+    // were phototypeset in a Times-like serif with Courier-style typewriter
+    // listings. The TeX Gyre faces are metric clones of exactly those
+    // (Termes = Times, Heros = Helvetica, Cursor = Courier) and are baked
+    // into the image (fonts-texgyre); any fontconfig family name works here.
+    fontBody: 'TeX Gyre Termes',
+    fontHeading: 'TeX Gyre Heros',
+    fontCode: 'TeX Gyre Cursor',
+    fontSizePt: 10.5,
+    lineHeight: 1.45,
+    codeFontSizePt: 9,
+    // Physical page size in mm; "auto" measures the final cleaned scans
+    // (pixels ÷ dpi) so the rendered book keeps the original trim size.
+    pageWidthMm: 'auto',
+    pageHeightMm: 'auto',
+    // Mirrored book margins (inner = binding side).
+    margins: { top: 17, bottom: 19, inner: 19, outer: 14 },
+    // Hyphenation language for body text (German Silbentrennung).
+    lang: 'de',
+    // Set a title to get a title page; author is the line below it.
+    title: '',
+    author: '',
+    tocTitle: 'Inhaltsverzeichnis',
+    // Heading levels that appear in the TOC (1 = chapters only).
+    tocDepth: 2,
+    // "page": each chapter starts on the next page; "right": on the next
+    // recto page like a classic hardcover (inserts blank versos).
+    chapterBreak: 'page',
+    // Figures print at their measured size in the original book (scan crop
+    // px ÷ dpi) times this factor, capped at figureMaxFrac of the text column.
+    figureScale: 1.0,
+    figureMaxFrac: 1.0,
+    outName: 'book-print.pdf',
+  },
   report: {
     thumbWidth: 360,
   },

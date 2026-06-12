@@ -13,11 +13,12 @@ import * as inpaint from './stages/inpaint.js';
 import * as report from './stages/report.js';
 import * as assemble from './stages/assemble.js';
 import * as markdown from './stages/markdown.js';
+import * as render from './stages/render.js';
 
 // Canonical order. `cover` is a side branch consuming only scan-0001.
-// `markdown` is opt-in (one Gemini call per page) and never runs as part of a
-// range selection — only when named explicitly.
-export const STAGES = [extract, cover, split, deskew, clean, detectHoles, inpaint, report, assemble, markdown];
+// `markdown` and `render` are opt-in and never run as part of a range
+// selection — only when named explicitly.
+export const STAGES = [extract, cover, split, deskew, clean, detectHoles, inpaint, report, assemble, markdown, render];
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

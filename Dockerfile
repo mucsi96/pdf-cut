@@ -45,6 +45,18 @@ RUN mkdir -p /opt/models/torch/hub/checkpoints \
 # layers, so adding it didn't invalidate their build cache.
 RUN apt-get update && apt-get install -y --no-install-recommends qpdf \
     && rm -rf /var/lib/apt/lists/*
+
+# ── Print rendering (`pdfcut render`): WeasyPrint + the TeX Gyre faces ────────
+# Termes/Heros/Cursor are metric clones of Times/Helvetica/Courier — the faces
+# 1980s German computer books were phototypeset in. Pango/GDK-Pixbuf are
+# WeasyPrint's text/image backends; pyphen (a dependency) does the German
+# hyphenation.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      fonts-texgyre fontconfig \
+      libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+ && /opt/venv/bin/pip install --no-cache-dir weasyprint \
+ && /opt/venv/bin/weasyprint --version
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
