@@ -79,6 +79,8 @@
     "title": "",
     "author": "",
     "chapterBreak": "page",
-    "figureScale": 1.0
+    "figureScale": 1.0,
+    "covers": true,
+    "coverFit": "cover"
   }
 }

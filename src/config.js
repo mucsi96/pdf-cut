@@ -270,6 +270,13 @@ export const DEFAULT_CONFIG = {
     // px ÷ dpi) times this factor, capped at figureMaxFrac of the text column.
     figureScale: 1.0,
     figureMaxFrac: 1.0,
+    // When the pipeline ran with cover.split=true, embed the recreated front
+    // and back covers (work/20-cover/cover-{front,back}.png) as the first and
+    // last full-bleed pages of book-print.pdf. Set false to leave them out.
+    covers: true,
+    // How a cover image fills the print page: "cover" (full bleed, may crop a
+    // sliver) or "contain" (whole cover visible, may letterbox).
+    coverFit: 'cover',
     outName: 'book-print.pdf',
   },
   report: {

@@ -119,6 +119,11 @@ into the image; swap any face with e.g. `--set render.fontBody="TeX Gyre Termes"
 Useful knobs (see `src/config.js` → `render` for all of them):
 
 - `render.title` / `render.author` — adds a centered title page
+- `render.covers` — when the pipeline ran with `cover.split=true`, the
+  recreated front/back covers (`work/20-cover/cover-{front,back}.png`) are
+  embedded as the first and last full-bleed pages of `book-print.pdf`
+  (default `true`; set `false` to leave them out). `render.coverFit` is
+  `cover` (full bleed, may crop a sliver) or `contain` (whole cover visible)
 - `render.chapterBreak=right` — chapters start on recto pages like a hardcover
 - `render.figureScale` / `render.figureMaxFrac` — global figure sizing
 - `render.tocDepth` — `1` lists only chapters in the TOC
