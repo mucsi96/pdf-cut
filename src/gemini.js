@@ -22,21 +22,53 @@ export function closestAspectRatio(actual) {
   return best;
 }
 
+/** Flatten an error's cause/aggregate chain into a short, readable string. */
+function describeError(err) {
+  const parts = [];
+  const seen = new Set();
+  const walk = (e) => {
+    if (!e || seen.has(e)) return;
+    seen.add(e);
+    if (e.code) parts.push(e.code);
+    else if (e.message) parts.push(e.message);
+    for (const sub of e.errors || []) walk(sub);
+    walk(e.cause);
+  };
+  walk(err);
+  return [...new Set(parts)].join(' → ') || String(err);
+}
+
 async function postWithRetry({ url, apiKey, body, log }) {
-  const maxAttempts = 4;
+  const maxAttempts = 5;
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify(body),
-    });
+    const wait = 2000 * 2 ** (attempt - 1);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      // Network-level failure (DNS, connection reset, timeout). fetch throws a
+      // bare "fetch failed"; the real reason hides in err.cause — surface it.
+      lastErr = new Error(`Gemini API request failed: ${describeError(err)}`, { cause: err });
+      if (attempt < maxAttempts) {
+        log(`  gemini: network error (${describeError(err)}), retrying in ${wait / 1000}s (attempt ${attempt}/${maxAttempts})`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      throw lastErr;
+    }
     if (res.status === 429 || res.status >= 500) {
-      const wait = 2000 * 2 ** (attempt - 1);
       lastErr = new Error(`Gemini API ${res.status}: ${(await res.text()).slice(0, 500)}`);
-      log(`  gemini: ${res.status}, retrying in ${wait / 1000}s (attempt ${attempt}/${maxAttempts})`);
-      await new Promise((r) => setTimeout(r, wait));
-      continue;
+      if (attempt < maxAttempts) {
+        log(`  gemini: ${res.status}, retrying in ${wait / 1000}s (attempt ${attempt}/${maxAttempts})`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      throw lastErr;
     }
     if (!res.ok) {
       throw new Error(`Gemini API ${res.status}: ${(await res.text()).slice(0, 2000)}`);

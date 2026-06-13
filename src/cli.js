@@ -140,5 +140,21 @@ program
 
 program.parseAsync().catch((err) => {
   console.error(`\nERROR: ${err.message}`);
+  // Surface the underlying cause chain — Node's fetch reports network failures
+  // as a bare "fetch failed" with the real error (ECONNRESET, ENOTFOUND,
+  // ETIMEDOUT, …) hidden in err.cause. AggregateErrors carry several.
+  const seen = new Set();
+  const describe = (e, indent) => {
+    if (!e || seen.has(e)) return;
+    seen.add(e);
+    const code = e.code ? ` (${e.code})` : '';
+    const msg = e.message || String(e);
+    if (msg && msg !== err.message) console.error(`${indent}caused by: ${msg}${code}`);
+    else if (code) console.error(`${indent}caused by:${code}`);
+    for (const sub of e.errors || []) describe(sub, indent + '  ');
+    describe(e.cause, indent + '  ');
+  };
+  describe(err.cause, '  ');
+  if (process.env.PDFCUT_DEBUG && err.stack) console.error(`\n${err.stack}`);
   process.exit(1);
 });
