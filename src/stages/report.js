@@ -3,6 +3,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { readManifest } from '../manifest.js';
 import { stageByName } from '../pipeline.js';
+import { pad } from '../pages.js';
 
 export const name = 'report';
 export const dir = '80-report';
@@ -76,17 +77,23 @@ export async function run_(ctx, { stageDir, params }) {
   // ── Cover ─────────────────────────────────────────────────────────────
   const coverDir = d('cover');
   if (exists(coverDir)) {
-    html += '<h2>Cover</h2><table><tr><th>scan (input)</th><th>variants (raw from Gemini)</th><th>final cover.png</th></tr><tr>';
-    html += await cell(path.join(d('extract'), 'scan-0001.png'));
+    const coverScan = ctx.config.cover?.scanPage ?? 1;
+    html += '<h2>Cover</h2><table><tr><th>scan (input)</th><th>variants (raw from Gemini)</th><th>final cover(s)</th></tr><tr>';
+    html += await cell(path.join(d('extract'), `scan-${pad(coverScan)}.png`));
     let variantCells = '';
     if (exists(path.join(coverDir, 'debug'))) {
-      for (const f of fs.readdirSync(path.join(coverDir, 'debug')).filter((f) => /^cover-variant-\d+-raw\.png$/.test(f)).sort()) {
+      for (const f of fs.readdirSync(path.join(coverDir, 'debug')).filter((f) => /-variant-\d+-raw\.png$/.test(f)).sort()) {
         const t = await thumb(path.join(coverDir, 'debug', f));
         if (t) variantCells += `<a href="${t.full}" target="_blank"><img src="${t.thumb}" loading="lazy"></a> `;
       }
     }
     html += `<td>${variantCells || '—'}</td>`;
-    html += await cell(path.join(coverDir, 'cover.png'));
+    let finalCells = '';
+    for (const f of fs.readdirSync(coverDir).filter((f) => /^cover(-front|-back)?\.png$/.test(f)).sort()) {
+      const t = await thumb(path.join(coverDir, f));
+      if (t) finalCells += `<a href="${t.full}" target="_blank"><img src="${t.thumb}" loading="lazy"></a> `;
+    }
+    html += `<td>${finalCells || '—'}</td>`;
     html += '</tr></table>';
   }
 

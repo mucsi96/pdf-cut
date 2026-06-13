@@ -42,8 +42,13 @@ export async function run_(ctx, { stageDir, params }) {
     ctx.log(`  render: ${figures.size} figure(s) — ${exact} at original book size, ${figures.size - exact} sized by aspect ratio`);
   }
 
+  const covers = resolveCovers(ctx, params);
+  if (covers.front || covers.back) {
+    ctx.log(`  render: embedding split cover(s) — ${[covers.front && 'front', covers.back && 'back'].filter(Boolean).join(' + ')} (fit: ${params.coverFit})`);
+  }
+
   const { html: bodyHtml, toc } = renderMarkdown(md, { figures, outputDir: ctx.outputDir });
-  const html = buildDocument({ bodyHtml, toc, page, params, textWidthMm });
+  const html = buildDocument({ bodyHtml, toc, page, params, textWidthMm, covers });
   const htmlPath = path.join(stageDir, 'debug', 'book.html');
   fs.writeFileSync(htmlPath, html);
 
@@ -83,6 +88,21 @@ async function resolvePageSize(ctx, params, dpi) {
     };
   }
   return { widthMm: 148, heightMm: 210, source: 'default A5 — no work pages found' };
+}
+
+/**
+ * The recreated front/back covers from a `cover.split=true` pipeline run
+ * (work/20-cover/cover-{front,back}.png). Returned as absolute paths so they
+ * can be embedded as full-page covers; `render.covers=false` opts out.
+ */
+function resolveCovers(ctx, params) {
+  if (params.covers === false) return { front: null, back: null };
+  const coverDir = ctx.dir('cover');
+  const pick = (name) => {
+    const p = path.join(coverDir, name);
+    return fs.existsSync(p) ? p : null;
+  };
+  return { front: pick('cover-front.png'), back: pick('cover-back.png') };
 }
 
 const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
@@ -157,8 +177,8 @@ function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Full HTML document: optional title page + TOC (front matter) + body. */
-function buildDocument({ bodyHtml, toc, page, params, textWidthMm }) {
+/** Full HTML document: optional cover + title page + TOC (front matter) + body. */
+export function buildDocument({ bodyHtml, toc, page, params, textWidthMm, covers = {} }) {
   const tocItems = toc
     .filter((t) => t.level <= params.tocDepth)
     .map((t) => `      <li class="toc-${t.level}"><a href="#${t.id}">${t.text}</a></li>`)
@@ -181,6 +201,10 @@ ${tocItems}
   <div class="page-blank"></div>\n`
     : '';
   const front = titlePage || tocNav ? `<section class="front">\n${titlePage}${tocNav}</section>\n` : '';
+  // Each cover is an empty block on its own full-bleed named page; the cover
+  // image is painted by the @page background (see buildCss).
+  const frontCover = covers.front ? '  <div class="cover cover-front"></div>\n' : '';
+  const backCover = covers.back ? '  <div class="cover cover-back"></div>\n' : '';
   return `<!DOCTYPE html>
 <html lang="${params.lang}">
 <head>
@@ -188,21 +212,39 @@ ${tocItems}
 <title>${escapeHtml(params.title || params.outName.replace(/\.pdf$/, ''))}</title>
 ${params.author ? `<meta name="author" content="${escapeHtml(params.author)}">` : ''}
 <style>
-${buildCss({ page, params, textWidthMm })}
+${buildCss({ page, params, textWidthMm, covers })}
 </style>
 </head>
 <body>
-${front}<section class="book-body">
+${frontCover}${front}<section class="book-body">
 ${bodyHtml}
 </section>
-</body>
+${backCover}</body>
 </html>
 `;
 }
 
-function buildCss({ page, params }) {
+function buildCss({ page, params, covers = {} }) {
   const mg = params.margins;
-  return `
+  const fit = params.coverFit === 'contain' ? 'contain' : 'cover';
+  const coverUrl = (p) => encodeURI('file://' + p);
+  const coverPage = (name, file) => `@page ${name} {
+  margin: 0;
+  background: #fff url("${coverUrl(file)}") no-repeat center center;
+  background-size: ${fit};
+  @top-center { content: none; }
+  @bottom-center { content: none; }
+}`;
+  const coverCss = covers.front || covers.back
+    ? [
+        covers.front && coverPage('cover-front', covers.front),
+        covers.back && coverPage('cover-back', covers.back),
+        // each cover is an empty block that fills one named, full-bleed page
+        covers.front && '.cover-front { page: cover-front; break-after: page; }',
+        covers.back && '.cover-back { page: cover-back; break-before: page; }',
+      ].filter(Boolean).join('\n') + '\n'
+    : '';
+  return `${coverCss}
 @page {
   size: ${page.widthMm.toFixed(1)}mm ${page.heightMm.toFixed(1)}mm;
   margin: ${mg.top}mm ${mg.outer}mm ${mg.bottom}mm ${mg.inner}mm;
