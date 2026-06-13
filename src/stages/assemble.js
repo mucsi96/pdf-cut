@@ -14,6 +14,9 @@ export const alwaysRun = true;
  * AI-recreated cover (or the raw cover scan with --skip-cover). Physical page
  * size comes from the 600 DPI pHYs metadata every PNG carries — img2pdf
  * honors it, so pixels/600 = inches, exactly matching the original book.
+ *
+ * In cover.split mode there is no separate cover.pdf: the recreated front and
+ * back covers (spine dropped) become the first and last pages of book.pdf.
  */
 export async function run_(ctx, { stageDir, params }) {
   const inpaintDir = ctx.dir('inpaint');
@@ -21,20 +24,31 @@ export async function run_(ctx, { stageDir, params }) {
     ? fs.readdirSync(inpaintDir).filter((n) => /^page-\d{4}\.png$/.test(n)).sort().map((n) => path.join(inpaintDir, n))
     : [];
 
+  const coverDir = ctx.dir('cover');
+  const frontCover = path.join(coverDir, 'cover-front.png');
+  const backCover = path.join(coverDir, 'cover-back.png');
+  const coversInBook = !!ctx.config.cover?.split && !ctx.skipCover && fs.existsSync(frontCover) && fs.existsSync(backCover);
+
   const result = {};
-  if (pageFiles.length) {
+  const bookPages = coversInBook ? [frontCover, ...pageFiles, backCover] : pageFiles;
+  if (bookPages.length) {
     const bookPdf = path.join(ctx.outputDir, params.bookName);
-    await run('img2pdf', [...pageFiles, '-o', bookPdf], { quiet: true });
+    await run('img2pdf', [...bookPages, '-o', bookPdf], { quiet: true });
     const { stdout } = await run('pdfinfo', [bookPdf], { capture: true, quiet: true });
-    ctx.log(`  assemble: ${params.bookName} — ${pageFiles.length} pages`);
+    ctx.log(`  assemble: ${params.bookName} — ${bookPages.length} pages${coversInBook ? ' (front + back covers embedded, spine dropped)' : ''}`);
     ctx.log(stdout.split('\n').filter((l) => /^(Pages|Page size)/.test(l)).map((l) => `    ${l}`).join('\n'));
     result.bookPdf = bookPdf;
-    result.pages = pageFiles.length;
+    result.pages = bookPages.length;
+    if (coversInBook) result.coversInBook = true;
   } else {
     ctx.log('  assemble: no interior pages found — skipping book.pdf');
   }
 
-  let coverPng = path.join(ctx.dir('cover'), 'cover.png');
+  // Separate cover.pdf is only produced when the covers are NOT embedded in
+  // the book (i.e. the default wrap-around mode, or --skip-cover).
+  if (coversInBook) return result;
+
+  let coverPng = path.join(coverDir, 'cover.png');
   const coverScan = ctx.config.cover?.scanPage ?? 1;
   if (ctx.skipCover || !fs.existsSync(coverPng)) {
     const rawCover = coverScan ? path.join(ctx.dir('extract'), `scan-${pad(coverScan)}.png`) : null;

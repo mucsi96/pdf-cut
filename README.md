@@ -10,6 +10,11 @@ scanned two-pages-per-sheet at 600 DPI and produces:
   text with grayscale illustrations preserved.
 - `output/cover.pdf` — the wrap-around cover (back + spine + front) recreated
   **in color** by Gemini (`gemini-3-pro-image`, Nano Banana Pro) as a single landscape page.
+  With `--set cover.split=true` the cover is instead cut into a separate front
+  and back cover (the spine/edge dropped), each recreated as its own portrait
+  page and **embedded directly in `output/book.pdf`** (front first, back last)
+  — no standalone `cover.pdf` in that case. Either way the recreation drops
+  publisher logos, barcodes and other markings/branding from the cover.
 - `output/book.md` + `output/images/` — *(opt-in)* the book body transcribed to
   Markdown by Gemini vision: German text with hyphenation repaired, BASIC
   listings as fenced code blocks, every figure recreated **in color** and
@@ -27,14 +32,14 @@ scanned two-pages-per-sheet at 600 DPI and produces:
 | # | stage | what it does | key debug artifacts (`work/<dir>/debug/`) |
 |---|-------|--------------|--------------------------------------------|
 | 10 | `extract` | pulls the **raw embedded scan bitmaps** out of the PDF with `pdfimages` (no resampling — true baseline); falls back to `pdftoppm` rendering | `pdfimages-list.txt`, contact sheet |
-| 20 | `cover` | sends the cover scan to Gemini, gets a 4K color recreation, Lanczos-upscales to print size; supports multiple variants | prompt, raw variants, response metadata |
+| 20 | `cover` | sends the cover scan to Gemini, gets a 4K color recreation, Lanczos-upscales to print size; supports multiple variants. `cover.split=true` cuts the scan into front + back covers (spine dropped) and recreates each separately | prompt, raw variants, response metadata, (split) `front-crop.png` / `back-crop.png` |
 | 30 | `split` | cuts each landscape spread into left + right page | scan with the cut line drawn in red |
 | 40 | `deskew` | projection-profile angle estimation (±0.05°), single full-res cubic rotation | `angles.json`, page with reference grid |
 | 50 | `clean` | illumination flatten (kills gutter shadow), border/edge residue removal, margin despeckle, **smart binarization**: soft-Sauvola text (pure black/white with anti-aliased glyph edges) + detected illustration regions kept as untouched grayscale | before/after, background estimate, blue illustration-region overlay, red changed-pixel mask |
 | 60 | `detect-holes` | finds black punch holes near the gutter (size/circularity filters), emits inpainting masks; runs on the *deskewed* pages so cleaning can't destroy the evidence | overlay with accepted (red) and rejected (yellow + reason) candidates |
 | 70 | `inpaint` | LaMa (via iopaint, CPU) on 768 px patches around each hole — one batch call, results pasted back | patch before/after pairs, page with patch boxes |
 | 80 | `report` | static **HTML report**: every stage for every page side by side | `work/report.html` |
-| 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata | `pdfinfo` summary in the log |
+| 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata. With `cover.split` the front/back covers are embedded as the first/last pages of `book.pdf` and no `cover.pdf` is written | `pdfinfo` summary in the log |
 | 95 | `markdown` | **opt-in** (one Gemini call per page, never part of a default run): transcribes each cleaned page to GitHub-flavored Markdown — body text only (page numbers / running heads / front matter dropped), BASIC listings as ` ```basic ` fences, figures cropped from the full-res scan and recreated in color (`gemini-3-pro-image`) into `output/images/`, paragraphs/listings/tables stitched across page breaks → `output/book.md` | per-page raw model output + token usage, raw scan crops of the figures, `prompt.txt` |
 | 97 | `render` | **opt-in**: typesets `output/book.md` into `output/book-print.pdf` with WeasyPrint — TOC with leader dots + live page numbers followed by a blank page, chapters on new pages, mirrored book margins with running head and page number, justified text with German hyphenation, figures at their original printed size | `book.html` (the exact typeset document), `weasyprint.log` |
 
@@ -154,6 +159,10 @@ Useful per-page overrides:
 - `split.overrides` — gutter drift: `{ "0012": 0.515 }` (cut ratio per scan)
 - `deskew.overrides` — fixed angle for illustration-only pages: `{ "0017": -0.4 }`
 - `cover.selectedVariant` + `--cover-variants 4` — generate several covers, pick one
+- `cover.split=true` — recreate the front and back cover separately (spine/edge
+  dropped) and embed them in `output/book.pdf` instead of writing `cover.pdf`;
+  tune `cover.spineStart` / `cover.spineEnd` (width fractions, default `0.48` /
+  `0.52`) so the cut lands on either side of your book's spine
 
 ## CLI reference
 
