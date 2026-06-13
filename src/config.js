@@ -277,6 +277,11 @@ export const DEFAULT_CONFIG = {
     // How a cover image fills the print page: "cover" (full bleed, may crop a
     // sliver) or "contain" (whole cover visible, may letterbox).
     coverFit: 'cover',
+    // Print-shop pass with Ghostscript after WeasyPrint: force every font
+    // embedded and flatten transparency (CompatibilityLevel 1.3 has no
+    // transparency model, so gs composites it away). Skipped with a warning
+    // when gs is not installed. Set false to keep WeasyPrint's PDF as-is.
+    printReady: true,
     outName: 'book-print.pdf',
   },
   report: {

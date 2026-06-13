@@ -124,6 +124,10 @@ Useful knobs (see `src/config.js` → `render` for all of them):
   embedded as the first and last full-bleed pages of `book-print.pdf`
   (default `true`; set `false` to leave them out). `render.coverFit` is
   `cover` (full bleed, may crop a sliver) or `contain` (whole cover visible)
+- `render.printReady` — after WeasyPrint, a Ghostscript pass embeds every font
+  fully and flattens transparency (PDF 1.3) for the print shop (default `true`;
+  needs `ghostscript`, otherwise it is skipped with a warning). The exact
+  Ghostscript output is logged to `work/97-render/debug/ghostscript.log`
 - `render.chapterBreak=right` — chapters start on recto pages like a hardcover
 - `render.figureScale` / `render.figureMaxFrac` — global figure sizing
 - `render.tocDepth` — `1` lists only chapters in the TOC

@@ -58,12 +58,52 @@ export async function run_(ctx, { stageDir, params }) {
   const problems = stderr.split('\n').filter((l) => /ERROR|CRITICAL/.test(l));
   for (const l of problems.slice(0, 10)) ctx.log(`  render: ${l.trim()}`);
 
+  if (params.printReady !== false) await flattenForPrint(ctx, pdfPath, stageDir);
+
   const { stdout } = await run('pdfinfo', [pdfPath], { capture: true, quiet: true });
   const pdfPages = parseInt(stdout.match(/^Pages:\s+(\d+)/m)?.[1] || '0', 10);
   const chapters = toc.filter((t) => t.level === 1).length;
   ctx.log(`  render: ${params.outName} — ${pdfPages} pages, ${chapters} chapters, ${figures.size} figure(s)`);
   ctx.log(stdout.split('\n').filter((l) => /^Page size/.test(l)).map((l) => `    ${l}`).join('\n'));
   return { bookPdf: pdfPath, pdfPages, chapters, figures: figures.size };
+}
+
+/**
+ * Print-shop pass with Ghostscript: force every font fully embedded and reduce
+ * transparency. CompatibilityLevel 1.3 has no transparency model, so gs
+ * composites/flattens any transparent regions (alpha figures, blend groups)
+ * away. Images are kept at full resolution (no downsampling, JPEG streams
+ * passed through). Replaces the file in place; no-op with a clear warning when
+ * gs is not installed, so the stage still succeeds with WeasyPrint's own
+ * (subset-embedded) PDF.
+ */
+async function flattenForPrint(ctx, pdfPath, stageDir) {
+  const tmp = `${pdfPath}.print.tmp`;
+  try {
+    const { stderr } = await run('gs', [
+      '-q', '-dBATCH', '-dNOPAUSE', '-dSAFER',
+      '-sDEVICE=pdfwrite',
+      '-dPDFSETTINGS=/prepress',
+      '-dCompatibilityLevel=1.3', // after /prepress so it wins: forces transparency flattening
+      '-dEmbedAllFonts=true', '-dSubsetFonts=true',
+      '-dAutoRotatePages=/None',
+      '-dDetectDuplicateImages=true',
+      '-dDownsampleColorImages=false', '-dDownsampleGrayImages=false', '-dDownsampleMonoImages=false',
+      '-dPassThroughJPEGImages=true',
+      `-sOutputFile=${tmp}`,
+      pdfPath,
+    ], { capture: true, quiet: true });
+    fs.writeFileSync(path.join(stageDir, 'debug', 'ghostscript.log'), stderr);
+    fs.renameSync(tmp, pdfPath);
+    ctx.log('  render: print pass (Ghostscript) — all fonts embedded, transparency flattened (PDF 1.3)');
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    if (err.code === 'ENOENT' || /spawn gs\b|gs ENOENT/.test(err.message)) {
+      ctx.log('  render: ghostscript not found — skipping print pass (WeasyPrint already embeds subset fonts; install ghostscript to flatten transparency)');
+      return;
+    }
+    throw new Error(`render: Ghostscript print pass failed: ${err.message}`);
+  }
 }
 
 /**

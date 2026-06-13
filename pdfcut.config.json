@@ -81,6 +81,7 @@
     "chapterBreak": "page",
     "figureScale": 1.0,
     "covers": true,
-    "coverFit": "cover"
+    "coverFit": "cover",
+    "printReady": true
   }
 }

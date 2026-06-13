@@ -51,9 +51,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends qpdf \
 # Bookman / Avant Garde — the faces all over 1980s computer books; the TeX
 # Gyre set (Times/Helvetica/Courier clones) stays available as an alternative.
 # Pango/GDK-Pixbuf are WeasyPrint's text/image backends; pyphen (a dependency)
-# does the German hyphenation.
+# does the German hyphenation. Ghostscript runs the print-ready pass that
+# embeds all fonts and flattens transparency in output/book-print.pdf.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      fonts-urw-base35 fonts-texgyre fontconfig \
+      fonts-urw-base35 fonts-texgyre fontconfig ghostscript \
       libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
  && /opt/venv/bin/pip install --no-cache-dir weasyprint \
