@@ -153,14 +153,19 @@ export async function composePrintCover(ctx, stageDir, p) {
 
   const backBuf = await sharp(backPng).resize(backW, fullH, { fit: 'cover', position: 'centre' }).toBuffer();
   const frontBuf = await sharp(frontPng).resize(frontW, fullH, { fit: 'cover', position: 'centre' }).toBuffer();
-  const spineColor = await resolveSpineColor(p.spineColor, backPng, frontPng);
+  // Spine colors: blend the cover edges adjacent to the spine so it reads as
+  // one piece with the front/back (back's inner edge → front's inner edge).
+  const cols = await resolveSpineColors(p.spineColor, backPng, frontPng);
+  const spineColor = cols.avg;
 
   const composites = [
     { input: backBuf, left: 0, top: 0 },
     { input: frontBuf, left: backW + spineW, top: 0 },
   ];
   if (spineW > 0) {
-    composites.push({ input: { create: { width: spineW, height: fullH, channels: 3, background: spineColor } }, left: backW, top: 0 });
+    // Gradient spine carrying the (rotated) book title for shelf recognition.
+    const spineBuf = await buildSpine({ spineW, fullH, cols, p, mm2px });
+    composites.push({ input: spineBuf, left: backW, top: 0 });
   }
   const outPng = path.join(stageDir, 'cover-print.png');
   await sharp({ create: { width: fullW, height: fullH, channels: 3, background: spineColor } })
@@ -186,23 +191,65 @@ export async function composePrintCover(ctx, stageDir, p) {
   return { file: 'cover-print.png', widthMm, heightMm, trimWidthMm: trimWmm, trimHeightMm: p.pageHeightMm, spineMm: p.spineMm, dpi };
 }
 
-/** Spine fill: an explicit #rrggbb, or the mean of the cover edges next to it. */
-async function resolveSpineColor(spec, backPng, frontPng) {
+/**
+ * Spine colors. An explicit '#rrggbb' makes a solid spine; 'auto' samples the
+ * cover edges next to the spine (back's inner/right edge and front's
+ * inner/left edge) so the spine blends from the back color into the front
+ * color. Returns { back, front, avg } as {r,g,b}.
+ */
+async function resolveSpineColors(spec, backPng, frontPng) {
   const hex = typeof spec === 'string' && spec.match(/^#?([0-9a-fA-F]{6})$/);
   if (hex) {
     const h = hex[1];
-    return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+    const c = { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+    return { back: c, front: c, avg: c };
   }
   const edgeMean = async (file, side) => {
     const m = await sharp(file).metadata();
     const w = Math.max(1, Math.round(m.width * 0.04));
     const left = side === 'right' ? m.width - w : 0;
     const { channels } = await sharp(file).extract({ left, top: 0, width: w, height: m.height }).stats();
-    return channels.slice(0, 3).map((c) => c.mean);
+    const [r, g, b] = channels.slice(0, 3).map((c) => Math.round(c.mean));
+    return { r, g, b };
   };
-  const [br, bg, bb] = await edgeMean(backPng, 'right'); // back's inner (spine-side) edge
-  const [fr, fg, fb] = await edgeMean(frontPng, 'left'); // front's inner (spine-side) edge
-  return { r: Math.round((br + fr) / 2), g: Math.round((bg + fg) / 2), b: Math.round((bb + fb) / 2) };
+  const back = await edgeMean(backPng, 'right');
+  const front = await edgeMean(frontPng, 'left');
+  const avg = { r: Math.round((back.r + front.r) / 2), g: Math.round((back.g + front.g) / 2), b: Math.round((back.b + front.b) / 2) };
+  return { back, front, avg };
+}
+
+/** Spine image: a back→front color gradient with the rotated book title. */
+async function buildSpine({ spineW, fullH, cols, p, mm2px }) {
+  const rgb = (c) => `rgb(${c.r},${c.g},${c.b})`;
+  const title = (p.spineTitle || '').trim();
+  let text = '';
+  if (title) {
+    const safe = mm2px(p.spineSafetyMm);
+    const fontPx = Math.max(8, spineW - 2 * safe); // fit the spine width minus safety
+    const cx = spineW / 2;
+    const cy = fullH / 2;
+    const fill = resolveTextColor(p.spineTextColor, cols.avg);
+    const font = p.spineFont || 'sans-serif';
+    // rotate 90° → title reads top-to-bottom (readable with the front cover up)
+    text = `<text x="${cx}" y="${cy}" fill="${fill}" font-family="${escapeXml(font)}" font-weight="bold" font-size="${fontPx}" text-anchor="middle" dominant-baseline="central" transform="rotate(90 ${cx} ${cy})">${escapeXml(title)}</text>`;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${spineW}" height="${fullH}">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">` +
+    `<stop offset="0" stop-color="${rgb(cols.back)}"/><stop offset="1" stop-color="${rgb(cols.front)}"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="${spineW}" height="${fullH}" fill="url(#g)"/>${text}</svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+/** Auto-pick white or black spine text by the spine's luminance, or use a hex. */
+function resolveTextColor(spec, avg) {
+  if (typeof spec === 'string' && /^#?[0-9a-fA-F]{6}$/.test(spec)) return spec.startsWith('#') ? spec : `#${spec}`;
+  const lum = 0.299 * avg.r + 0.587 * avg.g + 0.114 * avg.b;
+  return lum < 140 ? '#ffffff' : '#111111';
+}
+
+function escapeXml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /** Overlay Druckformat / Endformat / spine / Rillung / Sicherheitsabstand. */

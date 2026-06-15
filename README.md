@@ -180,8 +180,12 @@ calculated thickness in the middle, front cover (U1) right — at the exact
 `cover.print.dpi` (300). Set `cover.print.spineMm` to the **berechneter
 Buchrücken** from the product details (e.g. A5 softcover, 10.4 mm) and
 `pageWidthMm`/`pageHeightMm` to one cover's trim (A5 = 148 × 210). The spine
-fill is sampled from the cover edges (`spineColor: 'auto'`) or set to a
-`#rrggbb`. A guide overlay is written to
+blends the cover colors next to it (`spineColor: 'auto'` → a gradient from the
+back's inner edge to the front's, so it reads as one piece; or a `#rrggbb`),
+and `spineTitle` prints the book title rotated on the spine for shelf
+recognition (`spineTextColor` auto-picks white/black, `spineFont` is any
+installed family). Publisher logos, mascots, retailer logos and library
+stickers are dropped by the recreation prompt. A guide overlay is written to
 `work/20-cover/debug/cover-print-guides.jpg` (and shown in the report) with the
 Druckformat (gray), Endformat (red), spine, the **Rillung** crease bands
 (orange, ~5 mm each side of the spine — keep text/logos out, `rillungMm`) and

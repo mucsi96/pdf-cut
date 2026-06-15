@@ -24,7 +24,10 @@
       "spineSafetyMm": 2,
       "rillungMm": 5,
       "dpi": 300,
-      "spineColor": "auto"
+      "spineColor": "auto",
+      "spineTitle": "Spectrum BASIC-ABENTEUER Band 1 · Der fremde Planet",
+      "spineTextColor": "auto",
+      "spineFont": "sans-serif"
     }
   },
   "split": {

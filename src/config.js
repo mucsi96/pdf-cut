@@ -58,8 +58,16 @@ export const DEFAULT_CONFIG = {
       // elements (text/logos) this far from the spine on the front/back.
       rillungMm: 5,
       dpi: 300,
-      // Spine fill: 'auto' samples the cover edges next to the spine, or '#rrggbb'.
+      // Spine fill: 'auto' blends the cover colors next to the spine (a gradient
+      // from the back's inner edge to the front's inner edge), or a '#rrggbb'.
       spineColor: 'auto',
+      // Title printed (rotated) on the spine so the book is recognizable on a
+      // shelf. '' = no spine text.
+      spineTitle: '',
+      // Spine text color: 'auto' (white/black by spine luminance) or '#rrggbb'.
+      spineTextColor: 'auto',
+      // Any installed fontconfig family (e.g. 'URW Bookman', 'ZX Spectrum').
+      spineFont: 'sans-serif',
     },
     prompt:
       'Recreate this scanned black-and-white wrap-around book cover as a clean, ' +
@@ -73,15 +81,18 @@ export const DEFAULT_CONFIG = {
       'Output a flat printable cover image with no mockup, no perspective, no added borders.',
     // Used in split mode for each single (front or back) cover.
     splitPrompt:
-      'Recreate this scanned black-and-white book cover (a single front or back cover, ' +
-      'the spine is not included) as a clean, full-color print cover. Reproduce the title, ' +
-      'headings, body text and main artwork exactly as in the scan — keep all German text, do ' +
-      'not invent, translate or omit any of it, and keep the layout and proportions. Do NOT ' +
-      'reproduce any publisher logos, brand marks, imprints, barcodes, ISBN numbers, price tags, ' +
-      'stickers, stamps or other markings — leave those areas as clean cover background. ' +
-      'Style: early-1980s home computer book cover (Sinclair ZX Spectrum era), vivid but tasteful ' +
-      'colors, crisp vector-like typography. Output a flat printable cover image with no mockup, ' +
-      'no perspective, no added borders.',
+      'Recreate this scanned book cover (a single front or back cover; the spine is not ' +
+      'included) as a clean, full-color print cover. Reproduce the main title, subtitle, ' +
+      'headings, body/blurb text and the main illustration exactly as in the scan — keep all ' +
+      'German text, do not invent, translate or omit any of it, and keep the layout and ' +
+      'proportions. IMPORTANT — completely REMOVE and do NOT draw any of the following: ' +
+      'publisher or company logos, brand names, mascots or emblems (including small logos in ' +
+      'the corners such as a smiley/character mascot), series or retailer logos, ISBN, barcodes, ' +
+      'price tags, and any library stickers, call-number labels, shelf marks or stamps. Where ' +
+      'such a marking was, extend the surrounding background color or artwork over it so no trace ' +
+      'remains. Style: early-1980s home computer book cover (Sinclair ZX Spectrum era), vivid but ' +
+      'tasteful colors, crisp vector-like typography. Output a flat printable cover image with no ' +
+      'mockup, no perspective, no added borders.',
   },
   split: {
     centerRatio: 0.5,
