@@ -10,11 +10,13 @@ scanned two-pages-per-sheet at 600 DPI and produces:
   text with grayscale illustrations preserved.
 - `output/cover.pdf` — the wrap-around cover (back + spine + front) recreated
   **in color** by Gemini (`gemini-3-pro-image`, Nano Banana Pro) as a single landscape page.
-  With `--set cover.split=true` the cover is instead cut into a separate front
-  and back cover (the spine/edge dropped), each recreated as its own portrait
-  page and **embedded directly in `output/book.pdf`** (front first, back last)
-  — no standalone `cover.pdf` in that case. Either way the recreation drops
-  publisher logos, barcodes and other markings/branding from the cover.
+  With `cover.print.enabled` it is instead laid out as a print-ready **Umschlag**
+  (back · synthesized spine · front) at the exact Druckformat with bleed (see
+  **Print-ready output** below). With `--set cover.split=true` the cover is cut
+  into a separate front and back cover (the spine/edge dropped), each recreated
+  as its own portrait page and **embedded directly in `output/book.pdf`** (front
+  first, back last). Either way the recreation drops publisher logos, barcodes
+  and other markings/branding from the cover.
 - `output/book.md` + `output/images/` — *(opt-in)* the book body transcribed to
   Markdown by Gemini vision: German text with hyphenation repaired, BASIC
   listings as fenced code blocks, every figure recreated **in color** and
@@ -39,7 +41,7 @@ scanned two-pages-per-sheet at 600 DPI and produces:
 | 60 | `detect-holes` | finds black punch holes near the gutter (size/circularity filters), emits inpainting masks; runs on the *deskewed* pages so cleaning can't destroy the evidence | overlay with accepted (red) and rejected (yellow + reason) candidates |
 | 70 | `inpaint` | LaMa (via iopaint, CPU) on 768 px patches around each hole — one batch call, results pasted back | patch before/after pairs, page with patch boxes |
 | 80 | `report` | static **HTML report**: every stage for every page side by side | `work/report.html` |
-| 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata. With `cover.split` the front/back covers are embedded as the first/last pages of `book.pdf` and no `cover.pdf` is written | `pdfinfo` summary in the log |
+| 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata. With `cover.split` the front/back covers are embedded as the first/last pages of `book.pdf`; with `cover.print` the cover.pdf is the print-ready Umschlag. Each final PDF is run through the print-ready pass (CMYK/PDF·X, fonts embedded, flattened) | `pdfinfo` summary, `debug/ghostscript.log` |
 | 95 | `markdown` | **opt-in** (one Gemini call per page, never part of a default run): transcribes each cleaned page to GitHub-flavored Markdown — body text only (page numbers / running heads / front matter dropped), BASIC listings as ` ```basic ` fences, figures cropped from the full-res scan and recreated in color (`gemini-3-pro-image`) into `output/images/`, paragraphs/listings/tables stitched across page breaks → `output/book.md` | per-page raw model output + token usage, raw scan crops of the figures, `prompt.txt` |
 | 97 | `render` | **opt-in**: typesets `output/book.md` into `output/book-print.pdf` with WeasyPrint — TOC with leader dots + live page numbers followed by a blank page, chapters on new pages, mirrored book margins with running head and page number, justified text with German hyphenation, figures at their original printed size | `book.html` (the exact typeset document), `weasyprint.log` |
 
@@ -124,16 +126,50 @@ Useful knobs (see `src/config.js` → `render` for all of them):
   embedded as the first and last full-bleed pages of `book-print.pdf`
   (default `true`; set `false` to leave them out). `render.coverFit` is
   `cover` (full bleed, may crop a sliver) or `contain` (whole cover visible)
-- `render.printReady` — after WeasyPrint, a Ghostscript pass embeds every font
-  fully and flattens transparency (PDF 1.3) for the print shop (default `true`;
-  needs `ghostscript`, otherwise it is skipped with a warning). The exact
-  Ghostscript output is logged to `work/97-render/debug/ghostscript.log`
+- the final `book-print.pdf` goes through the shared print-ready pass — see
+  **Print-ready output** below — so it is fonts-embedded, flattened CMYK PDF/X
 - `render.chapterBreak=right` — chapters start on recto pages like a hardcover
 - `render.figureScale` / `render.figureMaxFrac` — global figure sizing
 - `render.tocDepth` — `1` lists only chapters in the TOC
 
 The exact HTML/CSS that was typeset lands in `work/97-render/debug/book.html`
 — open it in a browser to iterate on styling questions quickly.
+
+## Print-ready output (druck.at "Druckdaten")
+
+Every final PDF (`book.pdf`, `cover.pdf`, `book-print.pdf`) is run through a
+Ghostscript pass (`print.enabled`, default on; needs `ghostscript`) that makes
+it conform to a print shop's data rules:
+
+- **fonts fully embedded**, **transparency flattened** (PDF 1.3 — no live
+  transparency, no alpha),
+- color converted to **CMYK or grayscale, never RGB** (`print.colorMode=auto`:
+  the scanned book block stays grayscale = K-only, the color covers and the
+  typeset book become CMYK),
+- tagged **PDF/X-1a:2001** with a CMYK output intent (`print.pdfx`; point
+  `print.iccProfile` at PSO Coated v3 / FOGRA51 — or Uncoated v3 / FOGRA52 — for
+  an exact match, otherwise Ghostscript's bundled default CMYK profile is used).
+
+If `ghostscript` is missing the pass is skipped with a warning and the plain
+PDF is kept. The Ghostscript log lands in each stage's `debug/ghostscript.log`.
+
+### Print-ready wrap-around cover (Umschlag)
+
+`cover.print.enabled` builds `cover.pdf` as a single wrap-around Umschlag laid
+out to the cover spec — back cover (U4) left, a synthesized spine of the
+calculated thickness in the middle, front cover (U1) right — at the exact
+**Druckformat** (`2·pageWidthMm + spineMm + 2·bleedMm` × `pageHeightMm +
+2·bleedMm`) with full bleed on every outer edge, built in millimeters at
+`cover.print.dpi` (300). Set `cover.print.spineMm` to the **berechneter
+Buchrücken** from the product details (e.g. A5 softcover, 10.4 mm) and
+`pageWidthMm`/`pageHeightMm` to one cover's trim (A5 = 148 × 210). The spine
+fill is sampled from the cover edges (`spineColor: 'auto'`) or set to a
+`#rrggbb`. A guide overlay with the Druckformat / Endformat / spine /
+Sicherheitsabstand lines is written to
+`work/20-cover/debug/cover-print-guides.jpg` (and shown in the report) so you
+can check text stays inside the 5 mm (2 mm at the spine) safety margin. The
+front/back recreations it composes from are the same markings-free covers used
+by `cover.split`.
 
 ### VS Code tasks (Terminal → Run Task…)
 

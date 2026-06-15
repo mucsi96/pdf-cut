@@ -38,6 +38,26 @@ export const DEFAULT_CONFIG = {
     // spine / edge) is discarded. Tune these to your book's spine width.
     spineStart: 0.48,
     spineEnd: 0.52,
+    // Print-ready wrap-around cover (Umschlag) to the print shop's layout:
+    // back + synthesized spine + front, full-bleed, at the exact Druckformat.
+    // Needs the front/back recreations, so it implies split-style generation.
+    print: {
+      enabled: false,
+      // Trim size of ONE cover (U1/U4). A5 Hoch = 148 × 210 mm.
+      pageWidthMm: 148,
+      pageHeightMm: 210,
+      // Spine = "berechneter Buchrücken" from the product details (varies by
+      // page count / paper). Druckformat width = 2·pageWidthMm + spineMm + 2·bleedMm.
+      spineMm: 0,
+      // Beschnittzugabe (bleed) on every outer edge.
+      bleedMm: 2,
+      // Sicherheitsabstand: to the outer cut, and to the spine.
+      safetyMm: 5,
+      spineSafetyMm: 2,
+      dpi: 300,
+      // Spine fill: 'auto' samples the cover edges next to the spine, or '#rrggbb'.
+      spineColor: 'auto',
+    },
     prompt:
       'Recreate this scanned black-and-white wrap-around book cover as a clean, ' +
       'full-color print cover. The image shows, left to right: back cover, spine, front cover. ' +
@@ -277,12 +297,24 @@ export const DEFAULT_CONFIG = {
     // How a cover image fills the print page: "cover" (full bleed, may crop a
     // sliver) or "contain" (whole cover visible, may letterbox).
     coverFit: 'cover',
-    // Print-shop pass with Ghostscript after WeasyPrint: force every font
-    // embedded and flatten transparency (CompatibilityLevel 1.3 has no
-    // transparency model, so gs composites it away). Skipped with a warning
-    // when gs is not installed. Set false to keep WeasyPrint's PDF as-is.
-    printReady: true,
     outName: 'book-print.pdf',
+  },
+  // Print-shop output conversion (Ghostscript), applied to every final PDF
+  // (book.pdf, cover.pdf, book-print.pdf) per the druck.at "Druckdaten" rules:
+  // fonts fully embedded, transparency flattened, color converted to CMYK or
+  // grayscale (never RGB), tagged PDF/X-1a:2001 with a CMYK output intent.
+  // Skipped (with a warning) when ghostscript is not installed.
+  print: {
+    enabled: true,
+    // "auto": scanned book block → grayscale, color art / typeset book → CMYK.
+    // Force with "cmyk" | "gray" | "keep" (keep leaves colors and drops PDF/X).
+    colorMode: 'auto',
+    // "X-1a" (no transparency, CMYK), "X-3", or false for a plain CMYK PDF.
+    pdfx: 'X-1a',
+    // CMYK output-intent ICC; '' = Ghostscript's bundled default_cmyk.icc. Point
+    // this at PSO Coated v3 (FOGRA51) / Uncoated v3 (FOGRA52) for an exact match.
+    iccProfile: '',
+    outputIntent: 'Coated FOGRA51',
   },
   report: {
     thumbWidth: 360,

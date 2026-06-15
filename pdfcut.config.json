@@ -13,7 +13,18 @@
     "dryRun": false,
     "split": false,
     "spineStart": 0.48,
-    "spineEnd": 0.52
+    "spineEnd": 0.52,
+    "print": {
+      "enabled": true,
+      "pageWidthMm": 148,
+      "pageHeightMm": 210,
+      "spineMm": 10.4,
+      "bleedMm": 2,
+      "safetyMm": 5,
+      "spineSafetyMm": 2,
+      "dpi": 300,
+      "spineColor": "auto"
+    }
   },
   "split": {
     "centerRatio": 0.5,
@@ -81,7 +92,13 @@
     "chapterBreak": "page",
     "figureScale": 1.0,
     "covers": true,
-    "coverFit": "cover",
-    "printReady": true
+    "coverFit": "cover"
+  },
+  "print": {
+    "enabled": true,
+    "colorMode": "auto",
+    "pdfx": "X-1a",
+    "iccProfile": "",
+    "outputIntent": "Coated FOGRA51"
   }
 }

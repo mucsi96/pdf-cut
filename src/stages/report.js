@@ -89,12 +89,18 @@ export async function run_(ctx, { stageDir, params }) {
     }
     html += `<td>${variantCells || '—'}</td>`;
     let finalCells = '';
-    for (const f of fs.readdirSync(coverDir).filter((f) => /^cover(-front|-back)?\.png$/.test(f)).sort()) {
+    for (const f of fs.readdirSync(coverDir).filter((f) => /^cover(-front|-back|-print)?\.png$/.test(f)).sort()) {
       const t = await thumb(path.join(coverDir, f));
       if (t) finalCells += `<a href="${t.full}" target="_blank"><img src="${t.thumb}" loading="lazy"></a> `;
     }
     html += `<td>${finalCells || '—'}</td>`;
     html += '</tr></table>';
+    // Print Umschlag layout guides (Druckformat / Endformat / spine / safety).
+    const guides = path.join(coverDir, 'debug', 'cover-print-guides.jpg');
+    if (exists(guides)) {
+      const t = await thumb(guides);
+      if (t) html += `<p>Print Umschlag — <span class="dim">red = Endformat, gray = Druckformat/spine, blue dashed = Sicherheitsabstand</span></p><a href="${t.full}" target="_blank"><img src="${t.thumb}" loading="lazy" style="max-width:720px"></a>`;
+    }
   }
 
   // ── Scans ─────────────────────────────────────────────────────────────

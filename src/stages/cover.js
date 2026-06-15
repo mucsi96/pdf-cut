@@ -89,7 +89,11 @@ export async function run_(ctx, { stageDir, params }) {
     return { skipped: 'no-scan' };
   }
 
-  if (params.split) {
+  // Front/back are needed both for split mode (interior pages) and for the
+  // print Umschlag layout (back + spine + front at exact print dimensions).
+  const wantFrontBack = params.split || params.print?.enabled;
+  let result;
+  if (wantFrontBack) {
     const meta = await sharp(scanPath).metadata();
     const spineStart = Math.round(meta.width * params.spineStart);
     const spineEnd = Math.round(meta.width * params.spineEnd);
@@ -97,18 +101,131 @@ export async function run_(ctx, { stageDir, params }) {
       throw new Error(`cover: invalid spine band — need 0 < spineStart (${params.spineStart}) < spineEnd (${params.spineEnd}) < 1`);
     }
     // back cover = left of the spine, front cover = right of the spine; the
-    // spine band in between is discarded ("without the edge").
+    // original spine band in between is discarded.
     const backCrop = path.join(stageDir, 'debug', 'back-crop.png');
     const frontCrop = path.join(stageDir, 'debug', 'front-crop.png');
     await sharp(scanPath).extract({ left: 0, top: 0, width: spineStart, height: meta.height }).png().toFile(backCrop);
     await sharp(scanPath).extract({ left: spineEnd, top: 0, width: meta.width - spineEnd, height: meta.height }).png().toFile(frontCrop);
-    ctx.log(`  cover: split mode — back [0,${spineStart}px) + front [${spineEnd}px,${meta.width}px), spine dropped`);
+    ctx.log(`  cover: front/back mode — back [0,${spineStart}px) + front [${spineEnd}px,${meta.width}px), original spine dropped`);
     const front = await recreate(ctx, { stageDir, params, sourcePath: frontCrop, prompt: params.splitPrompt, baseName: 'cover-front', label: 'front cover' });
     const back = await recreate(ctx, { stageDir, params, sourcePath: backCrop, prompt: params.splitPrompt, baseName: 'cover-back', label: 'back cover' });
-    return { split: true, spineStart, spineEnd, front, back };
+    result = { split: !!params.split, spineStart, spineEnd, front, back };
+  } else {
+    result = await recreate(ctx, { stageDir, params, sourcePath: scanPath, prompt: params.prompt, baseName: 'cover', label: 'wrap-around cover' });
   }
 
-  return recreate(ctx, { stageDir, params, sourcePath: scanPath, prompt: params.prompt, baseName: 'cover', label: 'wrap-around cover' });
+  // Print-ready wrap-around Umschlag (back + synthesized spine + front) at the
+  // exact Druckformat with bleed, per the print shop's cover layout sheet.
+  if (params.print?.enabled && !params.dryRun) {
+    result.printCover = await composePrintCover(ctx, stageDir, params.print);
+  }
+  return result;
+}
+
+/**
+ * Compose a print-ready wrap-around cover (Umschlag) to the print shop's spec:
+ * back cover on the left, a synthesized spine of the calculated thickness in
+ * the middle, front cover on the right, full-bleed on every outer edge. The
+ * page is built in millimeters at `dpi`, so the resulting PDF is exactly the
+ * Druckformat (2·pageWidth + spine + 2·bleed) × (pageHeight + 2·bleed). A guide
+ * overlay (trim / spine / safety margins) is written to debug/ for checking.
+ */
+export async function composePrintCover(ctx, stageDir, p) {
+  const dpi = p.dpi || 300;
+  const mm2px = (mm) => Math.max(0, Math.round((mm / 25.4) * dpi));
+  const bleed = mm2px(p.bleedMm);
+  const halfW = mm2px(p.pageWidthMm);
+  const spineW = mm2px(p.spineMm);
+  const trimH = mm2px(p.pageHeightMm);
+  const fullH = trimH + 2 * bleed;
+  const backW = bleed + halfW; // left bleed + back trim, up to the spine
+  const frontW = halfW + bleed; // front trim + right bleed, from the spine
+  const fullW = backW + spineW + frontW;
+
+  const frontPng = path.join(stageDir, 'cover-front.png');
+  const backPng = path.join(stageDir, 'cover-back.png');
+  if (!fs.existsSync(frontPng) || !fs.existsSync(backPng)) {
+    throw new Error('cover: print layout needs the front/back recreations (cover-front.png, cover-back.png).');
+  }
+  if (!p.spineMm) {
+    ctx.log('  cover: WARNING print.spineMm is 0 — set the calculated Buchrücken from the product details');
+  }
+
+  const backBuf = await sharp(backPng).resize(backW, fullH, { fit: 'cover', position: 'centre' }).toBuffer();
+  const frontBuf = await sharp(frontPng).resize(frontW, fullH, { fit: 'cover', position: 'centre' }).toBuffer();
+  const spineColor = await resolveSpineColor(p.spineColor, backPng, frontPng);
+
+  const composites = [
+    { input: backBuf, left: 0, top: 0 },
+    { input: frontBuf, left: backW + spineW, top: 0 },
+  ];
+  if (spineW > 0) {
+    composites.push({ input: { create: { width: spineW, height: fullH, channels: 3, background: spineColor } }, left: backW, top: 0 });
+  }
+  const outPng = path.join(stageDir, 'cover-print.png');
+  await sharp({ create: { width: fullW, height: fullH, channels: 3, background: spineColor } })
+    .composite(composites)
+    // No alpha channel in print data (druck.at: "Keine Alpha-Kanäle"); flatten
+    // any transparency from the recreations onto the spine background and drop
+    // the alpha channel entirely (RGB output).
+    .flatten({ background: spineColor })
+    .removeAlpha()
+    .png({ compressionLevel: 6 })
+    .withMetadata({ density: dpi })
+    .toFile(outPng);
+
+  await drawCoverGuides(stageDir, outPng, { fullW, fullH, bleed, backW, spineW, mm2px, p });
+
+  const widthMm = (fullW / dpi) * 25.4;
+  const heightMm = (fullH / dpi) * 25.4;
+  const trimWmm = p.pageWidthMm * 2 + p.spineMm;
+  ctx.log(
+    `  cover: print Umschlag ${widthMm.toFixed(1)}×${heightMm.toFixed(1)} mm Druckformat ` +
+      `(Endformat ${trimWmm.toFixed(1)}×${p.pageHeightMm} mm, spine ${p.spineMm} mm, bleed ${p.bleedMm} mm) @ ${dpi} dpi → cover-print.png`,
+  );
+  return { file: 'cover-print.png', widthMm, heightMm, trimWidthMm: trimWmm, trimHeightMm: p.pageHeightMm, spineMm: p.spineMm, dpi };
+}
+
+/** Spine fill: an explicit #rrggbb, or the mean of the cover edges next to it. */
+async function resolveSpineColor(spec, backPng, frontPng) {
+  const hex = typeof spec === 'string' && spec.match(/^#?([0-9a-fA-F]{6})$/);
+  if (hex) {
+    const h = hex[1];
+    return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+  }
+  const edgeMean = async (file, side) => {
+    const m = await sharp(file).metadata();
+    const w = Math.max(1, Math.round(m.width * 0.04));
+    const left = side === 'right' ? m.width - w : 0;
+    const { channels } = await sharp(file).extract({ left, top: 0, width: w, height: m.height }).stats();
+    return channels.slice(0, 3).map((c) => c.mean);
+  };
+  const [br, bg, bb] = await edgeMean(backPng, 'right'); // back's inner (spine-side) edge
+  const [fr, fg, fb] = await edgeMean(frontPng, 'left'); // front's inner (spine-side) edge
+  return { r: Math.round((br + fr) / 2), g: Math.round((bg + fg) / 2), b: Math.round((bb + fb) / 2) };
+}
+
+/** Overlay Druckformat / Endformat / spine / Sicherheitsabstand for checking. */
+async function drawCoverGuides(stageDir, outPng, { fullW, fullH, bleed, backW, spineW, mm2px, p }) {
+  const safe = mm2px(p.safetyMm);
+  const spineSafe = mm2px(p.spineSafetyMm);
+  const trimW = fullW - 2 * bleed;
+  const trimH = fullH - 2 * bleed;
+  const spineX2 = backW + spineW;
+  const backSafe = { x: bleed + safe, y: bleed + safe, w: backW - spineSafe - (bleed + safe), h: trimH - 2 * safe };
+  const frontSafe = { x: spineX2 + spineSafe, y: bleed + safe, w: fullW - bleed - safe - (spineX2 + spineSafe), h: trimH - 2 * safe };
+  const rects = [
+    `<rect x="1" y="1" width="${fullW - 2}" height="${fullH - 2}" fill="none" stroke="#888888" stroke-width="2"/>`,
+    `<rect x="${bleed}" y="${bleed}" width="${trimW}" height="${trimH}" fill="none" stroke="#e2001a" stroke-width="3"/>`,
+    spineW > 0 ? `<rect x="${backW}" y="${bleed}" width="${spineW}" height="${trimH}" fill="#00000022" stroke="#888888" stroke-width="2" stroke-dasharray="12 9"/>` : '',
+    `<rect x="${backSafe.x}" y="${backSafe.y}" width="${Math.max(0, backSafe.w)}" height="${Math.max(0, backSafe.h)}" fill="none" stroke="#1f6feb" stroke-width="2" stroke-dasharray="16 12"/>`,
+    `<rect x="${frontSafe.x}" y="${frontSafe.y}" width="${Math.max(0, frontSafe.w)}" height="${Math.max(0, frontSafe.h)}" fill="none" stroke="#1f6feb" stroke-width="2" stroke-dasharray="16 12"/>`,
+  ].join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${fullW}" height="${fullH}">${rects}</svg>`;
+  await sharp(outPng)
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .jpeg({ quality: 82 })
+    .toFile(path.join(stageDir, 'debug', 'cover-print-guides.jpg'));
 }
 
 export { run_ as run };
