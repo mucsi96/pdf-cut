@@ -16,6 +16,13 @@ import { run } from './exec.js';
  * stays single-channel K) | "keep" (leave colors, disables PDF/X).
  */
 export async function toPrintPdf(ctx, { pdfPath, colorMode = 'cmyk', settings = {}, debugDir, label = 'print' }) {
+  // druck.at: "schwarze Schriften immer in reinem Schwarz (100% K)". A generic
+  // RGB→CMYK turns pure-black text into rich black; remap it to DeviceGray
+  // first (which converts to K-only) before the CMYK pass. CMYK output only.
+  if (colorMode === 'cmyk' && settings.pureBlack !== false) {
+    await pureBlackRemap(ctx, pdfPath, label);
+  }
+
   const tmp = `${pdfPath}.print.tmp`;
   const args = [
     '-q', '-dBATCH', '-dNOPAUSE', '-dSAFER',
@@ -66,6 +73,43 @@ export async function toPrintPdf(ctx, { pdfPath, colorMode = 'cmyk', settings = 
   } finally {
     if (defPath) fs.rmSync(defPath, { force: true });
   }
+}
+
+/**
+ * Remap pure-black RGB fills/strokes (`0 0 0 rg` / `0 0 0 RG`) to DeviceGray
+ * black (`0 g` / `0 G`) so the CMYK pass renders them as 100% K, not rich
+ * black. qpdf uncompresses the streams (keeping the xref valid); the swap is
+ * length-preserving (padded with spaces) so offsets stay correct. Color
+ * content is untouched. No-op (warning) when qpdf is missing.
+ */
+async function pureBlackRemap(ctx, pdfPath, label) {
+  const tmp = `${pdfPath}.uncomp`;
+  try {
+    await run('qpdf', ['--stream-data=uncompress', '--object-streams=disable', '--', pdfPath, tmp], { capture: true, quiet: true, allowFailure: true });
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      ctx.log(`  ${label}: qpdf not found — skipping pure-black remap (black text may stay rich black)`);
+      return 0;
+    }
+    throw err;
+  }
+  if (!fs.existsSync(tmp)) return 0; // qpdf failed; keep the original
+  const buf = fs.readFileSync(tmp);
+  let n = 0;
+  for (const [from, to] of [['0 0 0 rg', '0 g     '], ['0 0 0 RG', '0 G     ']]) {
+    const needle = Buffer.from(from, 'latin1');
+    const repl = Buffer.from(to, 'latin1'); // same byte length → offsets unchanged
+    let i = 0;
+    while ((i = buf.indexOf(needle, i)) !== -1) {
+      repl.copy(buf, i);
+      n++;
+      i += repl.length;
+    }
+  }
+  fs.writeFileSync(pdfPath, buf);
+  fs.rmSync(tmp, { force: true });
+  if (n) ctx.log(`  ${label}: pure-black — ${n} black fill(s)/stroke(s) set to K-only`);
+  return n;
 }
 
 function colorArgs(mode) {

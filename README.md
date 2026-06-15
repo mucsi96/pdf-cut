@@ -148,10 +148,27 @@ it conform to a print shop's data rules:
   typeset book become CMYK),
 - tagged **PDF/X-1a:2001** with a CMYK output intent (`print.pdfx`; point
   `print.iccProfile` at PSO Coated v3 / FOGRA51 — or Uncoated v3 / FOGRA52 — for
-  an exact match, otherwise Ghostscript's bundled default CMYK profile is used).
+  an exact match, otherwise Ghostscript's bundled default CMYK profile is used),
+- **black text in pure 100% K** (`print.pureBlack`, needs `qpdf`): a generic
+  RGB→CMYK turns pure-black text into rich black, so pure-black fills are
+  remapped to DeviceGray (which converts to K-only) before the CMYK pass.
 
-If `ghostscript` is missing the pass is skipped with a warning and the plain
-PDF is kept. The Ghostscript log lands in each stage's `debug/ghostscript.log`.
+If `ghostscript`/`qpdf` is missing the relevant step is skipped with a warning
+and the plain PDF is kept. The Ghostscript log lands in `debug/ghostscript.log`.
+
+The two deliverables are kept separate, as druck.at expects ("Umschlag getrennt
+vom Buchkern"): the **Kern** (`book.pdf` / `book-print.pdf`) is the interior
+only, and the **Umschlag** (`cover.pdf`) is the wrap-around cover.
+
+### Kern (book block)
+
+`book-print.pdf` is laid out as the Kern: A5 trim with **2 mm bleed** on every
+edge (`render.bleedMm` → Druckformat 152 × 214 mm; the text block keeps its
+trim-relative position and the inner margin stays ≥ 15 mm to the Bund), single
+pages in reading order, page numbers centered (not at the Bundsteg), and the
+page count **padded to a whole binding signature** with blank pages
+(`render.padToMultiple` = 2 for Klebebindung, 4 for Fadenheftung). For a
+print-compliant Kern set `render.covers=false` (covers belong on the Umschlag).
 
 ### Print-ready wrap-around cover (Umschlag)
 
@@ -164,12 +181,14 @@ calculated thickness in the middle, front cover (U1) right — at the exact
 Buchrücken** from the product details (e.g. A5 softcover, 10.4 mm) and
 `pageWidthMm`/`pageHeightMm` to one cover's trim (A5 = 148 × 210). The spine
 fill is sampled from the cover edges (`spineColor: 'auto'`) or set to a
-`#rrggbb`. A guide overlay with the Druckformat / Endformat / spine /
-Sicherheitsabstand lines is written to
-`work/20-cover/debug/cover-print-guides.jpg` (and shown in the report) so you
-can check text stays inside the 5 mm (2 mm at the spine) safety margin. The
-front/back recreations it composes from are the same markings-free covers used
-by `cover.split`.
+`#rrggbb`. A guide overlay is written to
+`work/20-cover/debug/cover-print-guides.jpg` (and shown in the report) with the
+Druckformat (gray), Endformat (red), spine, the **Rillung** crease bands
+(orange, ~5 mm each side of the spine — keep text/logos out, `rillungMm`) and
+the **Sicherheitsabstand** (blue dashed, 5 mm to the outer cut, 5 mm to the
+spine) so you can check important elements stay clear. The front/back
+recreations it composes from are the same markings-free covers used by
+`cover.split`.
 
 ### VS Code tasks (Terminal → Run Task…)
 

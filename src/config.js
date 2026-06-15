@@ -54,6 +54,9 @@ export const DEFAULT_CONFIG = {
       // Sicherheitsabstand: to the outer cut, and to the spine.
       safetyMm: 5,
       spineSafetyMm: 2,
+      // Rillung (crease) bands left and right of the spine — keep important
+      // elements (text/logos) this far from the spine on the front/back.
+      rillungMm: 5,
       dpi: 300,
       // Spine fill: 'auto' samples the cover edges next to the spine, or '#rrggbb'.
       spineColor: 'auto',
@@ -297,6 +300,13 @@ export const DEFAULT_CONFIG = {
     // How a cover image fills the print page: "cover" (full bleed, may crop a
     // sliver) or "contain" (whole cover visible, may letterbox).
     coverFit: 'cover',
+    // Beschnittzugabe: the Kern page box is the trim + this much bleed on every
+    // edge (A5 trim 148×210 → Druckformat 152×214 at 2 mm). Margins grow with
+    // it so the text block keeps its trim-relative position. 0 = no bleed.
+    bleedMm: 2,
+    // Pad the page count up to a whole binding signature with blank pages:
+    // 2 = Klebebindung, 4 = Fadenheftung. 0 = leave the count as is.
+    padToMultiple: 2,
     outName: 'book-print.pdf',
   },
   // Print-shop output conversion (Ghostscript), applied to every final PDF
@@ -315,6 +325,10 @@ export const DEFAULT_CONFIG = {
     // this at PSO Coated v3 (FOGRA51) / Uncoated v3 (FOGRA52) for an exact match.
     iccProfile: '',
     outputIntent: 'Coated FOGRA51',
+    // druck.at: "schwarze Schriften immer in reinem Schwarz (100% K)". Remap
+    // pure-black RGB fills to DeviceGray before the CMYK pass so they convert
+    // to K-only instead of rich black (needs qpdf; CMYK outputs only).
+    pureBlack: true,
   },
   report: {
     thumbWidth: 360,

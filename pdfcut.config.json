@@ -22,6 +22,7 @@
       "bleedMm": 2,
       "safetyMm": 5,
       "spineSafetyMm": 2,
+      "rillungMm": 5,
       "dpi": 300,
       "spineColor": "auto"
     }
@@ -91,14 +92,17 @@
     "author": "",
     "chapterBreak": "page",
     "figureScale": 1.0,
-    "covers": true,
-    "coverFit": "cover"
+    "covers": false,
+    "coverFit": "cover",
+    "bleedMm": 2,
+    "padToMultiple": 2
   },
   "print": {
     "enabled": true,
     "colorMode": "auto",
     "pdfx": "X-1a",
     "iccProfile": "",
-    "outputIntent": "Coated FOGRA51"
+    "outputIntent": "Coated FOGRA51",
+    "pureBlack": true
   }
 }

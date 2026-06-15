@@ -35,7 +35,12 @@ export async function run_(ctx, { stageDir, params }) {
   const page = await resolvePageSize(ctx, params, dpi);
   const mg = params.margins;
   const textWidthMm = page.widthMm - mg.inner - mg.outer;
-  ctx.log(`  render: page ${page.widthMm.toFixed(1)} × ${page.heightMm.toFixed(1)} mm (${page.source}), text column ${textWidthMm.toFixed(1)} mm`);
+  const bleed = params.bleedMm || 0;
+  ctx.log(
+    `  render: Endformat ${page.widthMm.toFixed(1)} × ${page.heightMm.toFixed(1)} mm (${page.source})` +
+      (bleed ? `, Druckformat ${(page.widthMm + 2 * bleed).toFixed(1)} × ${(page.heightMm + 2 * bleed).toFixed(1)} mm (+${bleed} mm bleed)` : '') +
+      `, text column ${textWidthMm.toFixed(1)} mm`,
+  );
 
   const figures = await measureFigures(md, { ctx, params, dpi, textWidthMm });
   if (figures.size) {
@@ -59,6 +64,8 @@ export async function run_(ctx, { stageDir, params }) {
   const problems = stderr.split('\n').filter((l) => /ERROR|CRITICAL/.test(l));
   for (const l of problems.slice(0, 10)) ctx.log(`  render: ${l.trim()}`);
 
+  await padPages(ctx, pdfPath, { stageDir, page, params });
+
   const print = ctx.config.print || {};
   if (print.enabled !== false) {
     const colorMode = print.colorMode && print.colorMode !== 'auto' ? print.colorMode : 'cmyk';
@@ -71,6 +78,35 @@ export async function run_(ctx, { stageDir, params }) {
   ctx.log(`  render: ${params.outName} — ${pdfPages} pages, ${chapters} chapters, ${figures.size} figure(s)`);
   ctx.log(stdout.split('\n').filter((l) => /^Page size/.test(l)).map((l) => `    ${l}`).join('\n'));
   return { bookPdf: pdfPath, pdfPages, chapters, figures: figures.size };
+}
+
+/**
+ * Pad the Kern to a whole binding signature: the page count must be divisible
+ * by render.padToMultiple (2 = Klebebindung, 4 = Fadenheftung). Missing pages
+ * are added as blank Druckformat pages at the end with WeasyPrint, then
+ * concatenated with qpdf. No-op when already a multiple or padding is off.
+ */
+async function padPages(ctx, pdfPath, { stageDir, page, params }) {
+  const mult = parseInt(params.padToMultiple, 10) || 0;
+  if (mult < 2) return;
+  const { stdout } = await run('pdfinfo', [pdfPath], { capture: true, quiet: true });
+  const n = parseInt(stdout.match(/^Pages:\s+(\d+)/m)?.[1] || '0', 10);
+  const pad = (mult - (n % mult)) % mult;
+  if (!n || !pad) return;
+  const bleed = params.bleedMm || 0;
+  const w = (page.widthMm + 2 * bleed).toFixed(1);
+  const h = (page.heightMm + 2 * bleed).toFixed(1);
+  const blankHtml = `<!doctype html><html><head><style>@page{size:${w}mm ${h}mm;margin:0}div{break-after:page}</style></head><body>${'<div>&#160;</div>'.repeat(pad)}</body></html>`;
+  const blankHtmlPath = path.join(stageDir, 'debug', 'blank.html');
+  const blankPdf = path.join(stageDir, 'debug', 'blank.pdf');
+  fs.writeFileSync(blankHtmlPath, blankHtml);
+  await run('weasyprint', [blankHtmlPath, blankPdf], { capture: true, quiet: true });
+  const tmp = `${pdfPath}.padded`;
+  await run('qpdf', ['--empty', '--pages', pdfPath, '1-z', blankPdf, '1-z', '--', tmp], { capture: true, quiet: true, allowFailure: true });
+  if (fs.existsSync(tmp)) {
+    fs.renameSync(tmp, pdfPath);
+    ctx.log(`  render: padded ${n} → ${n + pad} pages (multiple of ${mult})`);
+  }
 }
 
 /**
@@ -233,6 +269,13 @@ ${backCover}</body>
 
 function buildCss({ page, params, covers = {} }) {
   const mg = params.margins;
+  // Beschnittzugabe: the page box is the Druckformat (trim + bleed on every
+  // edge); margins grow by the bleed so the text block keeps its position
+  // relative to the trim, and full-bleed elements reach the Druckformat edge.
+  const bleed = params.bleedMm || 0;
+  const pageW = (page.widthMm + 2 * bleed).toFixed(1);
+  const pageH = (page.heightMm + 2 * bleed).toFixed(1);
+  const m = (a, b, c, d) => `${a + bleed}mm ${b + bleed}mm ${c + bleed}mm ${d + bleed}mm`;
   const fit = params.coverFit === 'contain' ? 'contain' : 'cover';
   const coverUrl = (p) => encodeURI('file://' + p);
   const coverPage = (name, file) => `@page ${name} {
@@ -253,8 +296,8 @@ function buildCss({ page, params, covers = {} }) {
     : '';
   return `${coverCss}
 @page {
-  size: ${page.widthMm.toFixed(1)}mm ${page.heightMm.toFixed(1)}mm;
-  margin: ${mg.top}mm ${mg.outer}mm ${mg.bottom}mm ${mg.inner}mm;
+  size: ${pageW}mm ${pageH}mm;
+  margin: ${m(mg.top, mg.outer, mg.bottom, mg.inner)};
   @top-center {
     content: string(chapter);
     font-family: "${params.fontBody}", serif;
@@ -268,7 +311,7 @@ function buildCss({ page, params, covers = {} }) {
     font-size: 10pt;
   }
 }
-@page :left { margin: ${mg.top}mm ${mg.inner}mm ${mg.bottom}mm ${mg.outer}mm; }
+@page :left { margin: ${m(mg.top, mg.inner, mg.bottom, mg.outer)}; }
 @page front {
   @top-center { content: none; }
   @bottom-center { content: none; }

@@ -205,19 +205,24 @@ async function resolveSpineColor(spec, backPng, frontPng) {
   return { r: Math.round((br + fr) / 2), g: Math.round((bg + fg) / 2), b: Math.round((bb + fb) / 2) };
 }
 
-/** Overlay Druckformat / Endformat / spine / Sicherheitsabstand for checking. */
+/** Overlay Druckformat / Endformat / spine / Rillung / Sicherheitsabstand. */
 async function drawCoverGuides(stageDir, outPng, { fullW, fullH, bleed, backW, spineW, mm2px, p }) {
   const safe = mm2px(p.safetyMm);
-  const spineSafe = mm2px(p.spineSafetyMm);
+  const rillung = mm2px(p.rillungMm ?? 5);
   const trimW = fullW - 2 * bleed;
   const trimH = fullH - 2 * bleed;
   const spineX2 = backW + spineW;
-  const backSafe = { x: bleed + safe, y: bleed + safe, w: backW - spineSafe - (bleed + safe), h: trimH - 2 * safe };
-  const frontSafe = { x: spineX2 + spineSafe, y: bleed + safe, w: fullW - bleed - safe - (spineX2 + spineSafe), h: trimH - 2 * safe };
+  // Important elements stay `safe` (5 mm) from the outer cut and `rillung`
+  // (5 mm) from the spine — the crease bands beside the spine are off-limits.
+  const backSafe = { x: bleed + safe, y: bleed + safe, w: backW - rillung - (bleed + safe), h: trimH - 2 * safe };
+  const frontSafe = { x: spineX2 + rillung, y: bleed + safe, w: fullW - bleed - safe - (spineX2 + rillung), h: trimH - 2 * safe };
   const rects = [
     `<rect x="1" y="1" width="${fullW - 2}" height="${fullH - 2}" fill="none" stroke="#888888" stroke-width="2"/>`,
     `<rect x="${bleed}" y="${bleed}" width="${trimW}" height="${trimH}" fill="none" stroke="#e2001a" stroke-width="3"/>`,
     spineW > 0 ? `<rect x="${backW}" y="${bleed}" width="${spineW}" height="${trimH}" fill="#00000022" stroke="#888888" stroke-width="2" stroke-dasharray="12 9"/>` : '',
+    // Rillung (crease) bands left + right of the spine — keep text/logos out.
+    spineW > 0 ? `<rect x="${backW - rillung}" y="${bleed}" width="${rillung}" height="${trimH}" fill="#ff990033" stroke="#ff9900" stroke-width="1.5"/>` : '',
+    spineW > 0 ? `<rect x="${spineX2}" y="${bleed}" width="${rillung}" height="${trimH}" fill="#ff990033" stroke="#ff9900" stroke-width="1.5"/>` : '',
     `<rect x="${backSafe.x}" y="${backSafe.y}" width="${Math.max(0, backSafe.w)}" height="${Math.max(0, backSafe.h)}" fill="none" stroke="#1f6feb" stroke-width="2" stroke-dasharray="16 12"/>`,
     `<rect x="${frontSafe.x}" y="${frontSafe.y}" width="${Math.max(0, frontSafe.w)}" height="${Math.max(0, frontSafe.h)}" fill="none" stroke="#1f6feb" stroke-width="2" stroke-dasharray="16 12"/>`,
   ].join('');
