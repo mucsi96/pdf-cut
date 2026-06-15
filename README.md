@@ -10,6 +10,13 @@ scanned two-pages-per-sheet at 600 DPI and produces:
   text with grayscale illustrations preserved.
 - `output/cover.pdf` — the wrap-around cover (back + spine + front) recreated
   **in color** by Gemini (`gemini-3-pro-image`, Nano Banana Pro) as a single landscape page.
+  With `cover.print.enabled` it is instead laid out as a print-ready **Umschlag**
+  (back · synthesized spine · front) at the exact Druckformat with bleed (see
+  **Print-ready output** below). With `--set cover.split=true` the cover is cut
+  into a separate front and back cover (the spine/edge dropped), each recreated
+  as its own portrait page and **embedded directly in `output/book.pdf`** (front
+  first, back last). Either way the recreation drops publisher logos, barcodes
+  and other markings/branding from the cover.
 - `output/book.md` + `output/images/` — *(opt-in)* the book body transcribed to
   Markdown by Gemini vision: German text with hyphenation repaired, BASIC
   listings as fenced code blocks, every figure recreated **in color** and
@@ -27,14 +34,14 @@ scanned two-pages-per-sheet at 600 DPI and produces:
 | # | stage | what it does | key debug artifacts (`work/<dir>/debug/`) |
 |---|-------|--------------|--------------------------------------------|
 | 10 | `extract` | pulls the **raw embedded scan bitmaps** out of the PDF with `pdfimages` (no resampling — true baseline); falls back to `pdftoppm` rendering | `pdfimages-list.txt`, contact sheet |
-| 20 | `cover` | sends the cover scan to Gemini, gets a 4K color recreation, Lanczos-upscales to print size; supports multiple variants | prompt, raw variants, response metadata |
+| 20 | `cover` | sends the cover scan to Gemini, gets a 4K color recreation, Lanczos-upscales to print size; supports multiple variants. `cover.split=true` cuts the scan into front + back covers (spine dropped) and recreates each separately | prompt, raw variants, response metadata, (split) `front-crop.png` / `back-crop.png` |
 | 30 | `split` | cuts each landscape spread into left + right page | scan with the cut line drawn in red |
 | 40 | `deskew` | projection-profile angle estimation (±0.05°), single full-res cubic rotation | `angles.json`, page with reference grid |
 | 50 | `clean` | illumination flatten (kills gutter shadow), border/edge residue removal, margin despeckle, **smart binarization**: soft-Sauvola text (pure black/white with anti-aliased glyph edges) + detected illustration regions kept as untouched grayscale | before/after, background estimate, blue illustration-region overlay, red changed-pixel mask |
 | 60 | `detect-holes` | finds black punch holes near the gutter (size/circularity filters), emits inpainting masks; runs on the *deskewed* pages so cleaning can't destroy the evidence | overlay with accepted (red) and rejected (yellow + reason) candidates |
 | 70 | `inpaint` | LaMa (via iopaint, CPU) on 768 px patches around each hole — one batch call, results pasted back | patch before/after pairs, page with patch boxes |
 | 80 | `report` | static **HTML report**: every stage for every page side by side | `work/report.html` |
-| 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata | `pdfinfo` summary in the log |
+| 90 | `assemble` | `img2pdf` → `output/book.pdf` + `output/cover.pdf`; physical size comes from the 600 DPI PNG metadata. With `cover.split` the front/back covers are embedded as the first/last pages of `book.pdf`; with `cover.print` the cover.pdf is the print-ready Umschlag. Each final PDF is run through the print-ready pass (CMYK/PDF·X, fonts embedded, flattened) | `pdfinfo` summary, `debug/ghostscript.log` |
 | 95 | `markdown` | **opt-in** (one Gemini call per page, never part of a default run): transcribes each cleaned page to GitHub-flavored Markdown — body text only (page numbers / running heads / front matter dropped), BASIC listings as ` ```basic ` fences, figures cropped from the full-res scan and recreated in color (`gemini-3-pro-image`) into `output/images/`, paragraphs/listings/tables stitched across page breaks → `output/book.md` | per-page raw model output + token usage, raw scan crops of the figures, `prompt.txt` |
 | 97 | `render` | **opt-in**: typesets `output/book.md` into `output/book-print.pdf` with WeasyPrint — TOC with leader dots + live page numbers followed by a blank page, chapters on new pages, mirrored book margins with running head and page number, justified text with German hyphenation, figures at their original printed size | `book.html` (the exact typeset document), `weasyprint.log` |
 
@@ -114,12 +121,78 @@ into the image; swap any face with e.g. `--set render.fontBody="TeX Gyre Termes"
 Useful knobs (see `src/config.js` → `render` for all of them):
 
 - `render.title` / `render.author` — adds a centered title page
+- `render.covers` — when the pipeline ran with `cover.split=true`, the
+  recreated front/back covers (`work/20-cover/cover-{front,back}.png`) are
+  embedded as the first and last full-bleed pages of `book-print.pdf`
+  (default `true`; set `false` to leave them out). `render.coverFit` is
+  `cover` (full bleed, may crop a sliver) or `contain` (whole cover visible)
+- the final `book-print.pdf` goes through the shared print-ready pass — see
+  **Print-ready output** below — so it is fonts-embedded, flattened CMYK PDF/X
 - `render.chapterBreak=right` — chapters start on recto pages like a hardcover
 - `render.figureScale` / `render.figureMaxFrac` — global figure sizing
 - `render.tocDepth` — `1` lists only chapters in the TOC
 
 The exact HTML/CSS that was typeset lands in `work/97-render/debug/book.html`
 — open it in a browser to iterate on styling questions quickly.
+
+## Print-ready output (druck.at "Druckdaten")
+
+Every final PDF (`book.pdf`, `cover.pdf`, `book-print.pdf`) is run through a
+Ghostscript pass (`print.enabled`, default on; needs `ghostscript`) that makes
+it conform to a print shop's data rules:
+
+- **fonts fully embedded**, **transparency flattened** (PDF 1.3 — no live
+  transparency, no alpha),
+- color converted to **CMYK or grayscale, never RGB** (`print.colorMode=auto`:
+  the scanned book block stays grayscale = K-only, the color covers and the
+  typeset book become CMYK),
+- tagged **PDF/X-1a:2001** with a CMYK output intent (`print.pdfx`; point
+  `print.iccProfile` at PSO Coated v3 / FOGRA51 — or Uncoated v3 / FOGRA52 — for
+  an exact match, otherwise Ghostscript's bundled default CMYK profile is used),
+- **black text in pure 100% K** (`print.pureBlack`, needs `qpdf`): a generic
+  RGB→CMYK turns pure-black text into rich black, so pure-black fills are
+  remapped to DeviceGray (which converts to K-only) before the CMYK pass.
+
+If `ghostscript`/`qpdf` is missing the relevant step is skipped with a warning
+and the plain PDF is kept. The Ghostscript log lands in `debug/ghostscript.log`.
+
+The two deliverables are kept separate, as druck.at expects ("Umschlag getrennt
+vom Buchkern"): the **Kern** (`book.pdf` / `book-print.pdf`) is the interior
+only, and the **Umschlag** (`cover.pdf`) is the wrap-around cover.
+
+### Kern (book block)
+
+`book-print.pdf` is laid out as the Kern: A5 trim with **2 mm bleed** on every
+edge (`render.bleedMm` → Druckformat 152 × 214 mm; the text block keeps its
+trim-relative position and the inner margin stays ≥ 15 mm to the Bund), single
+pages in reading order, page numbers centered (not at the Bundsteg), and the
+page count **padded to a whole binding signature** with blank pages
+(`render.padToMultiple` = 2 for Klebebindung, 4 for Fadenheftung). For a
+print-compliant Kern set `render.covers=false` (covers belong on the Umschlag).
+
+### Print-ready wrap-around cover (Umschlag)
+
+`cover.print.enabled` builds `cover.pdf` as a single wrap-around Umschlag laid
+out to the cover spec — back cover (U4) left, a synthesized spine of the
+calculated thickness in the middle, front cover (U1) right — at the exact
+**Druckformat** (`2·pageWidthMm + spineMm + 2·bleedMm` × `pageHeightMm +
+2·bleedMm`) with full bleed on every outer edge, built in millimeters at
+`cover.print.dpi` (300). Set `cover.print.spineMm` to the **berechneter
+Buchrücken** from the product details (e.g. A5 softcover, 10.4 mm) and
+`pageWidthMm`/`pageHeightMm` to one cover's trim (A5 = 148 × 210). The spine
+blends the cover colors next to it (`spineColor: 'auto'` → a gradient from the
+back's inner edge to the front's, so it reads as one piece; or a `#rrggbb`),
+and `spineTitle` prints the book title rotated on the spine for shelf
+recognition (`spineTextColor` auto-picks white/black, `spineFont` is any
+installed family). Publisher logos, mascots, retailer logos and library
+stickers are dropped by the recreation prompt. A guide overlay is written to
+`work/20-cover/debug/cover-print-guides.jpg` (and shown in the report) with the
+Druckformat (gray), Endformat (red), spine, the **Rillung** crease bands
+(orange, ~5 mm each side of the spine — keep text/logos out, `rillungMm`) and
+the **Sicherheitsabstand** (blue dashed, 5 mm to the outer cut, 5 mm to the
+spine) so you can check important elements stay clear. The front/back
+recreations it composes from are the same markings-free covers used by
+`cover.split`.
 
 ### VS Code tasks (Terminal → Run Task…)
 
@@ -154,6 +227,10 @@ Useful per-page overrides:
 - `split.overrides` — gutter drift: `{ "0012": 0.515 }` (cut ratio per scan)
 - `deskew.overrides` — fixed angle for illustration-only pages: `{ "0017": -0.4 }`
 - `cover.selectedVariant` + `--cover-variants 4` — generate several covers, pick one
+- `cover.split=true` — recreate the front and back cover separately (spine/edge
+  dropped) and embed them in `output/book.pdf` instead of writing `cover.pdf`;
+  tune `cover.spineStart` / `cover.spineEnd` (width fractions, default `0.48` /
+  `0.52`) so the cut lands on either side of your book's spine
 
 ## CLI reference
 

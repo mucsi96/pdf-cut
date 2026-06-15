@@ -27,14 +27,74 @@ export const DEFAULT_CONFIG = {
     minLongEdge: 3000,
     // Write the request to debug/ and skip the API call (no key required).
     dryRun: false,
+    // "split" mode: instead of one wrap-around landscape page, cut the cover
+    // scan into a back cover (left of the spine) and a front cover (right of
+    // the spine), drop the spine, and recreate each as its own portrait page.
+    // The two pages are then embedded in book.pdf (front first, back last) by
+    // the assemble stage instead of being written to a separate cover.pdf.
+    split: false,
+    // Spine band as fractions of the cover-scan width: [0, spineStart] is the
+    // back cover, [spineEnd, 1] is the front cover, the band in between (the
+    // spine / edge) is discarded. Tune these to your book's spine width.
+    spineStart: 0.48,
+    spineEnd: 0.52,
+    // Print-ready wrap-around cover (Umschlag) to the print shop's layout:
+    // back + synthesized spine + front, full-bleed, at the exact Druckformat.
+    // Needs the front/back recreations, so it implies split-style generation.
+    print: {
+      enabled: false,
+      // Trim size of ONE cover (U1/U4). A5 Hoch = 148 × 210 mm.
+      pageWidthMm: 148,
+      pageHeightMm: 210,
+      // Spine = "berechneter Buchrücken" from the product details (varies by
+      // page count / paper). Druckformat width = 2·pageWidthMm + spineMm + 2·bleedMm.
+      spineMm: 0,
+      // Beschnittzugabe (bleed) on every outer edge.
+      bleedMm: 2,
+      // Sicherheitsabstand: to the outer cut, and to the spine.
+      safetyMm: 5,
+      spineSafetyMm: 2,
+      // Rillung (crease) bands left and right of the spine — keep important
+      // elements (text/logos) this far from the spine on the front/back.
+      rillungMm: 5,
+      dpi: 300,
+      // Spine fill: 'auto' blends the cover colors next to the spine (a gradient
+      // from the back's inner edge to the front's inner edge), or a '#rrggbb'.
+      spineColor: 'auto',
+      // Title printed (rotated) on the spine so the book is recognizable on a
+      // shelf. '' = no spine text.
+      spineTitle: '',
+      // Spine text color: 'auto' (white/black by spine luminance) or '#rrggbb'.
+      spineTextColor: 'auto',
+      // Any installed fontconfig family (e.g. 'URW Bookman', 'ZX Spectrum').
+      spineFont: 'sans-serif',
+    },
     prompt:
       'Recreate this scanned black-and-white wrap-around book cover as a clean, ' +
       'full-color print cover. The image shows, left to right: back cover, spine, front cover. ' +
       'Keep this exact left-to-right layout and all proportions. Reproduce ALL German text, ' +
-      'titles, logos and layout exactly as in the scan — do not invent, translate or omit any text. ' +
+      'titles and layout exactly as in the scan — do not invent, translate or omit any text. ' +
+      'Do NOT reproduce any publisher logos, brand marks, imprints, barcodes, ISBN numbers, ' +
+      'price tags, stickers, stamps or other markings — leave those areas as clean cover background. ' +
       'Style: early-1980s home computer book cover (Sinclair ZX Spectrum era), vivid but tasteful ' +
       'colors, crisp vector-like typography, subtle retro-futuristic space scene on the front cover. ' +
       'Output a flat printable cover image with no mockup, no perspective, no added borders.',
+    // Used in split mode for each single (front or back) cover.
+    splitPrompt:
+      'Recreate this scanned book cover (a single front or back cover; the spine is not ' +
+      'included) as a clean, full-color print cover. Reproduce the main title, subtitle, ' +
+      'headings, body/blurb text and the main illustration exactly as in the scan — keep all ' +
+      'German text, do not invent, translate or omit any of it, and keep the layout and ' +
+      'proportions. Spell every word letter-for-letter exactly as printed — do not drop, add or ' +
+      'change a single letter, and keep the first letter of every word (e.g. "fremde", not "remde"). ' +
+      'IMPORTANT — completely REMOVE and do NOT draw any of the following: ' +
+      'publisher or company logos, brand names, mascots or emblems (including small logos in ' +
+      'the corners such as a smiley/character mascot), series or retailer logos, ISBN, barcodes, ' +
+      'price tags, and any library stickers, call-number labels, shelf marks or stamps. Where ' +
+      'such a marking was, extend the surrounding background color or artwork over it so no trace ' +
+      'remains. Style: early-1980s home computer book cover (Sinclair ZX Spectrum era), vivid but ' +
+      'tasteful colors, crisp vector-like typography. Output a flat printable cover image with no ' +
+      'mockup, no perspective, no added borders.',
   },
   split: {
     centerRatio: 0.5,
@@ -246,7 +306,42 @@ export const DEFAULT_CONFIG = {
     // px ÷ dpi) times this factor, capped at figureMaxFrac of the text column.
     figureScale: 1.0,
     figureMaxFrac: 1.0,
+    // When the pipeline ran with cover.split=true, embed the recreated front
+    // and back covers (work/20-cover/cover-{front,back}.png) as the first and
+    // last full-bleed pages of book-print.pdf. Set false to leave them out.
+    covers: true,
+    // How a cover image fills the print page: "cover" (full bleed, may crop a
+    // sliver) or "contain" (whole cover visible, may letterbox).
+    coverFit: 'cover',
+    // Beschnittzugabe: the Kern page box is the trim + this much bleed on every
+    // edge (A5 trim 148×210 → Druckformat 152×214 at 2 mm). Margins grow with
+    // it so the text block keeps its trim-relative position. 0 = no bleed.
+    bleedMm: 2,
+    // Pad the page count up to a whole binding signature with blank pages:
+    // 2 = Klebebindung, 4 = Fadenheftung. 0 = leave the count as is.
+    padToMultiple: 2,
     outName: 'book-print.pdf',
+  },
+  // Print-shop output conversion (Ghostscript), applied to every final PDF
+  // (book.pdf, cover.pdf, book-print.pdf) per the druck.at "Druckdaten" rules:
+  // fonts fully embedded, transparency flattened, color converted to CMYK or
+  // grayscale (never RGB), tagged PDF/X-1a:2001 with a CMYK output intent.
+  // Skipped (with a warning) when ghostscript is not installed.
+  print: {
+    enabled: true,
+    // "auto": scanned book block → grayscale, color art / typeset book → CMYK.
+    // Force with "cmyk" | "gray" | "keep" (keep leaves colors and drops PDF/X).
+    colorMode: 'auto',
+    // "X-1a" (no transparency, CMYK), "X-3", or false for a plain CMYK PDF.
+    pdfx: 'X-1a',
+    // CMYK output-intent ICC; '' = Ghostscript's bundled default_cmyk.icc. Point
+    // this at PSO Coated v3 (FOGRA51) / Uncoated v3 (FOGRA52) for an exact match.
+    iccProfile: '',
+    outputIntent: 'Coated FOGRA51',
+    // druck.at: "schwarze Schriften immer in reinem Schwarz (100% K)". Remap
+    // pure-black RGB fills to DeviceGray before the CMYK pass so they convert
+    // to K-only instead of rich black (needs qpdf; CMYK outputs only).
+    pureBlack: true,
   },
   report: {
     thumbWidth: 360,
