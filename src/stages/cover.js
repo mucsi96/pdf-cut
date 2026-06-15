@@ -221,24 +221,43 @@ async function resolveSpineColors(spec, backPng, frontPng) {
 /** Spine image: a back→front color gradient with the rotated book title. */
 async function buildSpine({ spineW, fullH, cols, p, mm2px }) {
   const rgb = (c) => `rgb(${c.r},${c.g},${c.b})`;
-  const title = (p.spineTitle || '').trim();
-  let text = '';
-  if (title) {
-    const safe = mm2px(p.spineSafetyMm);
-    const fontPx = Math.max(8, spineW - 2 * safe); // fit the spine width minus safety
-    const cx = spineW / 2;
-    const cy = fullH / 2;
-    const fill = resolveTextColor(p.spineTextColor, cols.avg);
-    const font = p.spineFont || 'sans-serif';
-    // rotate 90° → title reads top-to-bottom (readable with the front cover up)
-    text = `<text x="${cx}" y="${cy}" fill="${fill}" font-family="${escapeXml(font)}" font-weight="bold" font-size="${fontPx}" text-anchor="middle" dominant-baseline="central" transform="rotate(90 ${cx} ${cy})">${escapeXml(title)}</text>`;
-  }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${spineW}" height="${fullH}">` +
+  const gradSvg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${spineW}" height="${fullH}">` +
     `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">` +
     `<stop offset="0" stop-color="${rgb(cols.back)}"/><stop offset="1" stop-color="${rgb(cols.front)}"/>` +
-    `</linearGradient></defs>` +
-    `<rect width="${spineW}" height="${fullH}" fill="url(#g)"/>${text}</svg>`;
-  return sharp(Buffer.from(svg)).png().toBuffer();
+    `</linearGradient></defs><rect width="${spineW}" height="${fullH}" fill="url(#g)"/></svg>`;
+  let spine = await sharp(Buffer.from(gradSvg)).png().toBuffer();
+
+  const title = (p.spineTitle || '').trim();
+  if (title) {
+    const safe = mm2px(p.spineSafetyMm);
+    const bandPx = Math.max(8, spineW - 2 * safe); // glyph height cap (across spine)
+    const lenPx = Math.max(8, fullH - 4 * safe); // title length cap (along spine)
+    const fill = resolveTextColor(p.spineTextColor, cols.avg);
+    const font = p.spineFont || 'sans-serif';
+    // Render horizontally on a transparent canvas, then trim to the real glyph
+    // bounding box so centering does not depend on font metrics/baselines.
+    const render = async (fontPx) => {
+      const h = Math.ceil(fontPx * 1.8);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(fontPx * title.length * 1.2 + 40)}" height="${h}">` +
+        `<text x="50%" y="50%" fill="${fill}" font-family="${escapeXml(font)}" font-weight="bold" font-size="${fontPx}" ` +
+        `text-anchor="middle" dominant-baseline="central">${escapeXml(title)}</text></svg>`;
+      return sharp(Buffer.from(svg)).trim().toBuffer();
+    };
+    let fontPx = bandPx;
+    let textBuf = await render(fontPx);
+    let tm = await sharp(textBuf).metadata();
+    // shrink the font until the title fits the spine length and width
+    const scale = Math.min(lenPx / tm.width, bandPx / tm.height, 1);
+    if (scale < 1) {
+      fontPx = Math.max(8, Math.floor(fontPx * scale));
+      textBuf = await render(fontPx);
+    }
+    // rotate the rasterized title 90° (reads top-to-bottom) and center it
+    const rotated = await sharp(textBuf).rotate(90).png().toBuffer();
+    spine = await sharp(spine).composite([{ input: rotated, gravity: 'center' }]).png().toBuffer();
+  }
+  return sharp(spine).flatten({ background: cols.avg }).removeAlpha().png().toBuffer();
 }
 
 /** Auto-pick white or black spine text by the spine's luminance, or use a hex. */

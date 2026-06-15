@@ -85,7 +85,9 @@ export const DEFAULT_CONFIG = {
       'included) as a clean, full-color print cover. Reproduce the main title, subtitle, ' +
       'headings, body/blurb text and the main illustration exactly as in the scan — keep all ' +
       'German text, do not invent, translate or omit any of it, and keep the layout and ' +
-      'proportions. IMPORTANT — completely REMOVE and do NOT draw any of the following: ' +
+      'proportions. Spell every word letter-for-letter exactly as printed — do not drop, add or ' +
+      'change a single letter, and keep the first letter of every word (e.g. "fremde", not "remde"). ' +
+      'IMPORTANT — completely REMOVE and do NOT draw any of the following: ' +
       'publisher or company logos, brand names, mascots or emblems (including small logos in ' +
       'the corners such as a smiley/character mascot), series or retailer logos, ISBN, barcodes, ' +
       'price tags, and any library stickers, call-number labels, shelf marks or stamps. Where ' +
