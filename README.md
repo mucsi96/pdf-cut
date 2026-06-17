@@ -255,6 +255,16 @@ pdfcut clean-work [--from <stage>]
   (mm-based) parameters and the output page size derive from it. Stale ppi
   tags inside the PDF are ignored (a warning is printed when they disagree).
 
+## Handy: print N-up booklets (unrelated to this tool)
+
+Unrelated to the pipeline, but useful when you want to print several copies of a
+page onto one sheet (e.g. four identical copies, 2×2, on A4):
+
+```bash
+sudo apt install texlive-extra-utils texlive-latex-recommended
+pdfjam --nup 2x2 --paper a4paper --scale 0.92 --delta "0.8cm 0.8cm" --frame false input.pdf '1,1,1,1' -o output.pdf
+```
+
 ### How punch holes are found
 
 A punch machine hits the same spot on every page, so detection clusters
