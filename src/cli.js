@@ -15,10 +15,10 @@ program
   .command('run', { isDefault: true })
   .allowExcessArguments(false) // unknown subcommands must error, not start the pipeline
   .description('Run the pipeline (or a subset of stages)')
-  .option('--input <pdf>', 'input scanned PDF', 'input/book.pdf')
+  .option('--input <pdf...>', 'ordered input PDFs (repeatable; default: input/book.pdf)')
   .option('--work <dir>', 'work directory (per-stage outputs + debug images)', 'work')
   .option('--output <dir>', 'output directory for final PDFs', 'output')
-  .option('--pages <range>', 'PDF scan pages to process, e.g. "1-3,7" (page 1 = cover)')
+  .option('--pages <range>', 'scan pages across the combined sequence, e.g. "1-3,7" (page 1 = cover)')
   .option('--stages <list>', 'comma-separated stage list, e.g. "deskew,clean"')
   .option('--from <stage>', 'start stage (inclusive)')
   .option('--to <stage>', 'end stage (inclusive)')
@@ -32,21 +32,21 @@ program
     if (opts.coverVariants) config.cover.variants = parseInt(opts.coverVariants, 10);
     const ctx = makeContext({
       config,
-      inputPdf: opts.input,
+      inputPdfs: opts.input ?? ['input/book.pdf'],
       workRoot: opts.work,
       outputDir: opts.output,
       pages: parsePageRange(opts.pages),
       force: opts.force,
       skipCover: opts.skipCover,
     });
-    if (!fs.existsSync(ctx.inputPdf)) {
-      const needsInput = !opts.stages && !opts.from ? true : selectStages(opts).some((s) => s.name === 'extract');
-      if (needsInput) {
-        console.error(`Input PDF not found: ${ctx.inputPdf}`);
-        process.exit(1);
+    const stages = selectStages(opts);
+    if (stages.some((s) => s.name === 'extract')) {
+      for (const input of ctx.inputPdfs) {
+        if (!fs.existsSync(input) || !fs.statSync(input).isFile()) {
+          throw new Error(`Input PDF not found or not a file: ${input}`);
+        }
       }
     }
-    const stages = selectStages(opts);
     console.log(`Stages: ${stages.map((s) => s.name).join(' → ')}`);
     await runPipeline(ctx, stages);
   });

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import sharp from 'sharp';
 import { generateText, generateImage, buildTextRequestBody, closestAspectRatio } from '../gemini.js';
 import { hashParams } from '../manifest.js';
@@ -92,14 +93,16 @@ export async function run_(ctx, { stageDir, params }) {
     const rawFile = path.join(stageDir, 'debug', `page-${id}-raw.md`);
     const metaFile = path.join(stageDir, 'debug', `page-${id}-meta.json`);
     const meta = readJson(metaFile);
-    const txOk = fs.existsSync(mdFile) && fs.existsSync(rawFile) && meta?.txHash === txHash;
+    const pagePng = path.join(srcDir, `page-${id}.png`);
+    const sourceHash = crypto.createHash('sha256').update(await fs.promises.readFile(pagePng)).digest('hex');
+    const txOk = fs.existsSync(mdFile) && fs.existsSync(rawFile)
+      && meta?.txHash === txHash && meta?.sourceHash === sourceHash;
     const figsOk = meta?.figHash === figHash
       && (meta?.figures || []).every((f) => fs.existsSync(path.join(imagesDir, f)));
     if (txOk && figsOk) {
       cached++;
       return;
     }
-    const pagePng = path.join(srcDir, `page-${id}.png`);
     let text;
     let usage;
     if (txOk) {
@@ -134,7 +137,7 @@ export async function run_(ctx, { stageDir, params }) {
       log: ctx.log,
     });
     fs.writeFileSync(mdFile, md);
-    fs.writeFileSync(metaFile, JSON.stringify({ ...usage, txHash, figHash, figures: files }, null, 2));
+    fs.writeFileSync(metaFile, JSON.stringify({ ...usage, txHash, figHash, sourceHash, figures: files }, null, 2));
     ctx.log(`  markdown: page ${id} done (${transcribed + refigured + cached}/${pageIds.length})`);
   };
 

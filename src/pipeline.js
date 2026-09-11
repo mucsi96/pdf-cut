@@ -38,10 +38,13 @@ export function selectStages({ stages, from, to }) {
   return STAGES.slice(fromIdx, toIdx + 1).filter((s) => !s.optIn || s.name === from || s.name === to);
 }
 
-export function makeContext({ config, inputPdf, workRoot, outputDir, pages, force, skipCover }) {
+export function makeContext({ config, inputPdf, inputPdfs, workRoot, outputDir, pages, force, skipCover }) {
+  const inputs = (inputPdfs ?? [inputPdf]).map((file) => path.resolve(file));
+  if (!inputs.length) throw new Error('At least one input PDF is required');
   const ctx = {
     config,
-    inputPdf: path.resolve(inputPdf),
+    inputPdf: inputs[0],
+    inputPdfs: inputs,
     workRoot: path.resolve(workRoot),
     outputDir: path.resolve(outputDir),
     appRoot: APP_ROOT,
@@ -69,7 +72,11 @@ export async function runPipeline(ctx, stages) {
   for (const stage of stages) {
     const stageDir = path.join(ctx.workRoot, stage.dir);
     const params = ctx.config[stage.configKey] ?? {};
-    const paramsHash = hashParams({ params, pages: ctx.pages, input: ctx.inputPdf });
+    const inputs = ctx.inputPdfs.map((file) => {
+      const stat = fs.existsSync(file) ? fs.statSync(file) : null;
+      return { file, size: stat?.size, mtimeMs: stat?.mtimeMs };
+    });
+    const paramsHash = hashParams({ params, pages: ctx.pages, inputs });
 
     if (!stage.alwaysRun && !ctx.force && isUpToDate(stageDir, paramsHash)) {
       ctx.log(`■ ${stage.name}: up to date (use --force to re-run)`);

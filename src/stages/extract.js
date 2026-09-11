@@ -3,6 +3,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { run } from '../exec.js';
 import { pad } from '../pages.js';
+import { prepareInputs } from '../inputs.js';
 
 export const name = 'extract';
 export const dir = '10-extract';
@@ -16,6 +17,16 @@ export const title = 'Extract scan images from PDF';
  * when pages don't map 1:1 to embedded images.
  */
 export async function run_(ctx, { stageDir, params }) {
+  const prepared = await prepareInputs(ctx.inputPdfs ?? [ctx.inputPdf], stageDir);
+  try {
+    const result = await extractScans({ ...ctx, inputPdf: prepared.inputPdf }, { stageDir, params });
+    return { ...result, sources: prepared.sources };
+  } finally {
+    if ((ctx.inputPdfs?.length ?? 1) > 1) fs.rmSync(prepared.inputPdf, { force: true });
+  }
+}
+
+async function extractScans(ctx, { stageDir, params }) {
   const pages = ctx.pages; // null = all
 
   // Inventory the embedded images.
@@ -26,6 +37,9 @@ export async function run_(ctx, { stageDir, params }) {
   const { stdout: infoOut } = await run('pdfinfo', [ctx.inputPdf], { capture: true, quiet: true });
   const totalPages = parseInt(infoOut.match(/^Pages:\s+(\d+)/m)?.[1] || '0', 10);
   const wantedPages = pages ?? Array.from({ length: totalPages }, (_, i) => i + 1);
+  if (!wantedPages.length || wantedPages.some((p) => !Number.isInteger(p) || p < 1 || p > totalPages)) {
+    throw new Error(`extract: --pages must select scan pages between 1 and ${totalPages}`);
+  }
 
   // Resolve the scan DPI. "auto" (default) trusts the PDF's own layout: the
   // ppi pdfimages derives from image pixels vs. page-box size — correct for
@@ -65,6 +79,13 @@ export async function run_(ctx, { stageDir, params }) {
 
   let mode = params.mode;
   if (mode === 'auto') mode = oneImagePerPage ? 'embedded' : 'render';
+  // The cleanup stages use a shared DPI. Rendering mixed-resolution inputs
+  // at that DPI preserves physical page sizes instead of merely retagging pixels.
+  if (ctx.inputPdfs?.length > 1 && (params.dpi === 'auto' || !params.dpi)
+      && ppis.some((ppi) => Math.abs(ppi - dpi) > 5)) {
+    ctx.log(`  extract: mixed scan resolutions — rendering the sequence at ${dpi} DPI`);
+    mode = 'render';
+  }
   if (mode === 'embedded' && !oneImagePerPage) {
     ctx.log('  extract: pages do not map 1:1 to embedded images — falling back to render mode');
     mode = 'render';

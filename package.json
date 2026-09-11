@@ -10,7 +10,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node src/cli.js"
+    "start": "node src/cli.js",
+    "test": "node --test"
   },
   "dependencies": {
     "commander": "^12.1.0",
