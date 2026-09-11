@@ -71,6 +71,50 @@ podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env pdf-cut run
 No Gemini key? Use `--skip-cover`, or `--set cover.dryRun=true` to just inspect
 the request that would be sent.
 
+### Multiple PDFs → one book
+
+List the PDFs in reading order. You can also repeat `--input`:
+
+```bash
+podman run --rm --userns=keep-id -v "$PWD:/data:Z" --env-file .env \
+  pdf-cut run --input input/part-01.pdf input/part-02.pdf input/part-03.pdf
+
+# Equivalent:
+pdfcut run --input input/part-01.pdf --input input/part-02.pdf --input input/part-03.pdf
+```
+
+The sequence goes through the restoration pipeline as one book and produces
+one `output/book.pdf`. Input order is preserved exactly; filenames are not
+sorted. PDFs are joined with `qpdf` (included in the Docker image) without
+recompressing the embedded scans. With automatic DPI detection, mixed scan
+resolutions use rendering at a common DPI to preserve physical page sizes.
+
+- Scan numbers span the entire sequence: if the first PDF has 20 pages, scan
+  21 is page 1 of the second PDF. `--pages`, `cover.scanPage`, and
+  `split.overrides` all use these combined scan numbers.
+- There is **one cover for the combined book**, by default scan 1. Later PDFs
+  are treated as continuations, including their first pages. Exclude unwanted
+  extra covers using `--pages`, or prepare body-only PDFs with `pdfcut slice`.
+  For inputs without a cover, use
+  `--set cover.scanPage=0 --set split.firstBookPage=1 --skip-cover`.
+- The extraction manifest (`work/10-extract/manifest.json`) records each
+  source PDF and its combined scan range. Changing the input order, file size,
+  or modification time invalidates cached pipeline stages. Supply the same
+  ordered inputs when rerunning `run` stages.
+
+For a consistently typeset book with a single table of contents, continuous
+page numbers, and shared typography, follow the combined run with:
+
+```bash
+pdfcut markdown
+pdfcut render --set render.title="My collected book" --set render.author="Author"
+```
+
+These commands use the combined work directory and produce `output/book.md`
+and `output/book-print.pdf`. Markdown requires a Gemini API key. The scan-based
+`book.pdf` retains the source layouts; the rendered version uses the shared
+print layout described below.
+
 ### Markdown conversion (after the pipeline has run)
 
 ```bash
@@ -235,7 +279,7 @@ Useful per-page overrides:
 ## CLI reference
 
 ```
-pdfcut run [--input <pdf>] [--pages 1-3,7] [--stages a,b | --from s --to s]
+pdfcut run [--input <pdf...>] [--pages 1-3,7] [--stages a,b | --from s --to s]
            [--set stage.key=value]... [--force] [--skip-cover] [--cover-variants n]
 pdfcut markdown [--body-pages 12-181] [--set markdown.key=value]... [--force]
 pdfcut render [--set render.key=value]...   # output/book.md → output/book-print.pdf
@@ -277,8 +321,23 @@ punch positions (magenta), per-page candidates (yellow) and applied holes
 
 Notes:
 
-- `--pages` selects **PDF scan pages** (each may hold two book pages). Book
-  page numbers stay stable across partial runs.
+- `--pages` selects **PDF scan pages** across the combined input sequence
+  (each may hold two book pages). Scan numbers stay stable across partial
+  runs; the selected interior scans receive consecutive book page numbers
+  starting at `split.firstBookPage`.
 - Changing `--pages` or any stage parameter invalidates the stage automatically
   (hash check); unchanged stages are skipped unless `--force`.
 - The final PDFs inherit physical size from the scan DPI (pixels ÷ 600 = inches).
+
+## Tests
+
+`npm test` runs integration tests with synthetic PDFs and requires the system
+tools from the Docker image. To use an existing image with the current source:
+
+```bash
+podman run --rm --userns=keep-id \
+  -v "$PWD/src:/app/src:ro" -v "$PWD/test:/app/test:ro" \
+  --workdir /app --entrypoint node pdf-cut --test test/multiple-inputs.test.js
+```
+
+The tests use temporary directories and do not require a Gemini key.
